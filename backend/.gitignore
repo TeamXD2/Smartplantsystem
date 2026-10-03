@@ -1,0 +1,24 @@
+# Dependencies (run `npm install` to get them)
+node_modules/
+
+# Secrets - everyone makes their own .env from .env.example
+.env
+
+# Uploaded photos (keep the empty folder)
+uploads/*
+!uploads/.gitkeep
+
+# Files Postman creates when this folder is connected in Local mode
+# (the shareable collection is postman/Biodiversity-Sprint1.postman_collection.json)
+.postman/
+postman/collections/
+postman/documents/
+postman/environments/
+postman/flows/
+postman/globals/
+postman/mocks/
+postman/specs/
+
+# Logs / OS
+*.log
+.DS_Store
