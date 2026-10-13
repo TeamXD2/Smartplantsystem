@@ -72,6 +72,10 @@
     {
       "key": "rejectedRequestId",
       "value": ""
+    },
+    {
+      "key": "publicView",
+      "value": ""
     }
   ],
   "item": [
@@ -1153,7 +1157,7 @@
           ]
         },
         {
-          "name": "External Botanist views unassigned plant",
+          "name": "External Botanist opens unassigned unpublished plant (should fail)",
           "request": {
             "method": "GET",
             "header": [],
@@ -1185,12 +1189,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Plant visible', () => pm.response.to.have.status(200));",
-                  "pm.test('Location hidden (not assigned)', () => {",
-                  "  const json = pm.response.json();",
-                  "  pm.expect(json.full_detail).to.eql(false);",
-                  "  pm.expect(json).to.not.have.property('latitude');",
-                  "});"
+                  "pm.test('Hidden like for a visitor (404)', () => pm.response.to.have.status(404));"
                 ]
               }
             }
@@ -1303,7 +1302,7 @@
           ]
         },
         {
-          "name": "External Botanist list shows which plants are restricted",
+          "name": "External Botanist list hides unassigned unpublished plants",
           "request": {
             "method": "GET",
             "header": [],
@@ -1341,11 +1340,11 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('List returned', () => pm.response.to.have.status(200));",
-                  "pm.test('full_detail is true only for the assigned plant', () => {",
-                  "  const mine = (list, id) => list.find((p) => String(p.plant_id) === String(id));",
-                  "  const plants = pm.response.json().plants;",
-                  "  pm.expect(mine(plants, pm.collectionVariables.get('externalPlantId')).full_detail).to.eql(true);",
-                  "  pm.expect(mine(plants, pm.collectionVariables.get('plantId')).full_detail).to.eql(false);",
+                  "pm.test('Own plant listed with full detail, unpublished unassigned plant not listed', () => {",
+                  "  const ids = pm.response.json().plants.map((p) => String(p.plant_id));",
+                  "  const own = pm.response.json().plants.find((p) => String(p.plant_id) === String(pm.collectionVariables.get('externalPlantId')));",
+                  "  pm.expect(own.full_detail).to.eql(true);",
+                  "  pm.expect(ids).to.not.include(String(pm.collectionVariables.get('plantId')));",
                   "});"
                 ]
               }
@@ -2028,6 +2027,102 @@
                   "  pm.expect(json).to.not.have.property('latitude');",
                   "  pm.expect(json).to.not.have.property('longitude');",
                   "  pm.expect(json).to.not.have.property('registered_by');",
+                  "});",
+                  "pm.collectionVariables.set('publicView', JSON.stringify(pm.response.json()));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "External Botanist sees published unassigned plant exactly like a visitor",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/plants/{{plantId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "plants",
+                "{{plantId}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{externalToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Visible once published', () => pm.response.to.have.status(200));",
+                  "pm.test('Same fields and values as the Park Visitor view', () => {",
+                  "  const { plant_id, photos, full_detail, ...rest } = pm.response.json();",
+                  "  pm.expect(full_detail).to.eql(false);",
+                  "  pm.expect(photos).to.eql([]);",
+                  "  pm.expect(rest).to.eql(JSON.parse(pm.collectionVariables.get('publicView')));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "External Botanist list shows published unassigned plant with public fields only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/plants?limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "plants"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{externalToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('List returned', () => pm.response.to.have.status(200));",
+                  "pm.test('Listed with catalog fields only', () => {",
+                  "  const plant = pm.response.json().plants.find((p) => String(p.plant_id) === String(pm.collectionVariables.get('plantId')));",
+                  "  pm.expect(plant.full_detail).to.eql(false);",
+                  "  pm.expect(plant.general_location).to.eql('Niah National Park');",
+                  "  ['latitude', 'cover_photo_url', 'registered_by_name', 'publication_status'].forEach((k) => pm.expect(plant).to.not.have.property(k));",
                   "});"
                 ]
               }

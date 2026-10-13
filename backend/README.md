@@ -48,7 +48,7 @@ It is already set up in the team's Supabase project.
 | `plants` | One row per plant: names and classification, height/width, notes, GPS, conservation info, its QR code, and two visibility settings (below) |
 | `plant_photos` | Links to each plant's photos. The image files themselves are in the Supabase Storage bucket `plant-photos` |
 | `record_change_requests` | Edit/delete requests sent by Botanists, and the Officer's decision and comment |
-| `botanist_assignments` | Which External Botanist is assigned to which plant (they only see full details of their assigned plants) |
+| `botanist_assignments` | Which External Botanist is assigned to which plant. For any other plant they see only what a Park Visitor sees |
 | `audit_logs` | Every action (registered, edited, photo uploaded, approved…). This is what the plant **history** shows |
 
 **The two visibility settings on each plant**
@@ -72,10 +72,10 @@ These are the names the API uses in requests and responses.
 | `scientific_name` | text, max 150 | register, edit | **Required** |
 | `common_name` | text, max 150 | register, edit | |
 | `family`, `genus`, `species` | text, max 100 each | register, edit | |
-| `height_cm`, `width_cm` | number 0–9999.99 | register, edit | 🔒 · Returned as a string, e.g. `"50.00"` |
+| `height_cm`, `width_cm` | number 0–9999.99 | register, edit | Returned as a string, e.g. `"50.00"` |
 | `latitude` | number −90 to 90 | register, edit | 🔒 · Send together with `longitude` · Returned as a string |
 | `longitude` | number −180 to 180 | register, edit | 🔒 · Returned as a string |
-| `morphological_notes` | text, max 10000 | register, edit | 🔒 · Appearance (leaves, flowers…) |
+| `morphological_notes` | text, max 10000 | register, edit | Appearance (leaves, flowers…) |
 | `surrounding_environment` | text, max 10000 | register, edit | 🔒 · Habitat |
 | `conservation_status` | text, max 100 | edit | e.g. "Endangered" |
 | `ecological_role` | text, max 10000 | edit | |
@@ -87,9 +87,11 @@ These are the names the API uses in requests and responses.
 | `registered_by` | user id | auto | List responses also include `registered_by_name` |
 | `created_at`, `updated_at` | date (ISO string) | auto | |
 
-🔒 = left out for an External Botanist who isn't assigned to the plant (`full_detail: false`).
+🔒 = location fields. People without full access only see them if the Officer allowed it (see below).
 
-Park Visitors (public endpoints) see the names, classification, size, `morphological_notes`,
+**Who sees what.** Internal Botanists, Officers, Admins and assigned External Botanists see
+every field. Park Visitors, and External Botanists looking at a plant they aren't assigned to,
+see the same public view: nothing until the plant is published; then they see the names, classification, size, `morphological_notes`,
 `conservation_status`, `ecological_role`, `medicinal_use` and `cultural_significance`, plus:
 `Public` → `latitude`, `longitude`, `surrounding_environment`, `general_location` ·
 `Approximate` → `general_location` only · `Hidden` → no location. The public catalog list shows only names,
@@ -168,7 +170,7 @@ classification, `conservation_status` and `general_location`.
 |---|---|---|---|---|---|
 | Scan QR of a **published** plant | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Register a new plant | ❌ | ✅ ¹ | ✅ | ✅ | ✅ |
-| See full details (incl. GPS) | ❌ | assigned plants only | ✅ | ✅ | ✅ |
+| See full details (incl. GPS) | ❌ | assigned plants only ² | ✅ | ✅ | ✅ |
 | Upload photos | ❌ | assigned plants only | ✅ | ✅ | ✅ |
 | Edit a plant | ❌ | send a request | ✅ directly | ✅ directly | ✅ directly |
 | Delete a plant | ❌ | send a request | send a request | approve requests | approve requests |
@@ -178,6 +180,8 @@ classification, `conservation_status` and `general_location`.
 | Create / deactivate accounts | ❌ | ❌ | ❌ | ❌ | ✅ |
 
 ¹ An External Botanist is automatically assigned to plants they register.
+² For plants they aren't assigned to, an External Botanist sees exactly what a Park Visitor
+sees: nothing until the plant is published, then the public fields only (no photos).
 
 There is **no public sign-up**: only an Admin can create accounts.
 
@@ -232,7 +236,7 @@ You need **Node.js**. The database, photo bucket and Admin account are already s
 **Testing with Postman (optional):** import `postman/Biodiversity-Sprint1.postman_collection.json`,
 set `adminEmail` / `adminPassword` in the collection's **Variables** tab, pick
 `postman/sample-leaf.png` in *Upload plant photo* → **Body**, then **Run** the collection.
-All 60 checks should pass. Each run adds test users (`...@test.com`) and plants to the
+All 63 checks should pass. Each run adds test users (`...@test.com`) and plants to the
 **shared** database, so only run it when needed.
 
 ---
@@ -298,8 +302,8 @@ All 60 checks should pass. Each run adds test users (`...@test.com`) and plants 
 - **QR codes** — the QR just contains the `qr_code` text (e.g. `SFC-2E524325`).
   `qr_code_image` is a ready-made PNG you can put straight into `<img src="...">`.
 - **Restricted details** — if `GET /api/plants/:id` returns `"full_detail": false`, the user
-  is an External Botanist not assigned to this plant. GPS, size and notes are left out, so
-  show them as restricted rather than empty.
+  is an External Botanist not assigned to this plant. They get the same view as a Park
+  Visitor (no photos, location only if allowed), and unpublished plants return 404 for them.
 - **Visitor view** — the public scan returns 404 for unpublished plants ("not available
   yet"). Location fields only appear if the Officer allowed them.
 - **Photo upload** — send `multipart/form-data` with the file in a field named `photo`
@@ -310,7 +314,8 @@ All 60 checks should pass. Each run adds test users (`...@test.com`) and plants 
 - **History** — each item has a ready-to-show `summary` sentence.
 - **Lists** — list endpoints return `{ plants, total, page, limit }`. Use `?page=2` for the next
   page (`limit` is 20 by default, max 100). Lists only have summary fields (names, status,
-  `cover_photo_url`); open a plant for its full details. The public catalog never includes
+  `cover_photo_url`); open a plant for its full details. For External Botanists, plants they
+  aren't assigned to only appear once published, with the public catalog fields. The public catalog never includes
   GPS or photos.
 
 ---

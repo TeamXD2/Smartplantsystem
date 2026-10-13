@@ -1,14 +1,6 @@
 const pool = require('../config/db');
 const { parsePaging, likePattern } = require('../utils/listQuery');
-
-// Only these columns ever reach the public - new columns stay private by
-// default. Height/width/appearance are included since they don't
-// meaningfully help someone locate the plant.
-const PUBLIC_FIELDS = [
-  'qr_code', 'common_name', 'scientific_name', 'family', 'genus', 'species',
-  'height_cm', 'width_cm', 'morphological_notes', 'conservation_status',
-  'ecological_role', 'medicinal_use', 'cultural_significance'
-];
+const { isPublished, buildPublicView, buildPublicListItem } = require('../utils/publicView');
 
 // GET /api/public/plants?search=&page=&limit=
 // No authentication - the public species catalog. Published plants only,
@@ -34,9 +26,7 @@ async function listPublicPlants(req, res) {
 
     const { rows } = await pool.query(
       `SELECT qr_code, common_name, scientific_name, family, genus, species, conservation_status,
-              CASE WHEN location_visibility IN ('Public', 'Approximate') THEN general_location END
-                AS general_location,
-              COUNT(*) OVER () AS total
+              location_visibility, general_location, COUNT(*) OVER () AS total
        FROM plants
        WHERE publication_status = 'Published' ${searchCondition}
        ORDER BY COALESCE(common_name, scientific_name), plant_id
@@ -45,7 +35,7 @@ async function listPublicPlants(req, res) {
     );
 
     res.json({
-      plants: rows.map(({ total, ...plant }) => plant),
+      plants: rows.map(buildPublicListItem),
       total: rows.length > 0 ? Number(rows[0].total) : 0,
       page: paging.page,
       limit: paging.limit
@@ -70,27 +60,12 @@ async function getPublicPlantByQrCode(req, res) {
 
     const plant = rows[0];
 
-    // Step 1: not published yet -> public sees nothing, regardless of
-    // location_visibility.
-    if (plant.publication_status !== 'Published') {
+    // Not published yet -> public sees nothing, regardless of location_visibility.
+    if (!isPublished(plant)) {
       return res.status(404).json({ error: 'This plant record is not yet published' });
     }
 
-    const publicView = {};
-    PUBLIC_FIELDS.forEach((field) => { publicView[field] = plant[field]; });
-
-    // Location is opt-in: anything other than Public/Approximate (Hidden,
-    // NULL, a typo) shows no location at all.
-    if (plant.location_visibility === 'Public') {
-      publicView.latitude = plant.latitude;
-      publicView.longitude = plant.longitude;
-      publicView.surrounding_environment = plant.surrounding_environment;
-      publicView.general_location = plant.general_location;
-    } else if (plant.location_visibility === 'Approximate') {
-      publicView.general_location = plant.general_location; // e.g. "Bakor Forest Area"
-    }
-
-    res.json(publicView);
+    res.json(buildPublicView(plant));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error while looking up QR code' });

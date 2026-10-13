@@ -7,13 +7,7 @@ const { logAction } = require('../utils/auditLog');
 const { validatePlantFields } = require('../utils/validatePlant');
 const { pickEditableFields, applyPlantChanges } = require('../utils/plantChanges');
 const { parsePaging, likePattern } = require('../utils/listQuery');
-
-// Fields considered "full detail" - restricted for an External Botanist
-// unless they are assigned to this specific plant (see botanist_assignments).
-const FULL_DETAIL_FIELDS = [
-  'morphological_notes', 'surrounding_environment', 'latitude', 'longitude',
-  'height_cm', 'width_cm', 'general_location'
-];
+const { isPublished, buildPublicView, buildPublicListItem } = require('../utils/publicView');
 
 // pg returns JSON/JSONB columns already parsed, TEXT columns as strings.
 function parseJson(value) {
@@ -34,12 +28,15 @@ async function canSeeFullDetail(user, plant_id) {
   return rows.length > 0;
 }
 
-// Strips the full-detail fields from a plant row (used for unassigned
-// External Botanists viewing a plant outside their assignment).
-function stripToBasicInfo(plantRow) {
-  const basic = { ...plantRow };
-  FULL_DETAIL_FIELDS.forEach((field) => delete basic[field]);
-  return basic;
+// What an External Botanist sees of a plant they aren't assigned to:
+// exactly what a Park Visitor sees (published plants only, location as the
+// Officer allowed, no photos). Returns null for unpublished plants, which
+// the caller answers with a plain 404 so it doesn't reveal the plant exists.
+function restrictedView(plant) {
+  if (!isPublished(plant)) {
+    return null;
+  }
+  return { plant_id: plant.plant_id, ...buildPublicView(plant), photos: [], full_detail: false };
 }
 
 // POST /api/plants
@@ -132,10 +129,10 @@ async function createPlant(req, res) {
 
 // GET /api/plants?search=&publication_status=&mine=true&page=&limit=
 // (authenticated staff) - plant list for dashboards / "my records".
-// Every role sees every plant here, but only summary columns: none of the
-// FULL_DETAIL_FIELDS (GPS, size, notes) are included, so nothing has to be
-// hidden from External Botanists. full_detail says whether opening the plant
-// with GET /api/plants/:id will show everything.
+// Summary columns only (no GPS, size or notes). External Botanists get their
+// assigned plants plus published ones, and for unassigned plants only the
+// public catalog fields. full_detail says whether opening the plant with
+// GET /api/plants/:id will show everything.
 async function listPlants(req, res) {
   try {
     const paging = parsePaging(req.query);
@@ -165,11 +162,14 @@ async function listPlants(req, res) {
     if (mine === 'true') {
       conditions.push('p.registered_by = $1');
     }
+    if (isExternalBotanist) {
+      conditions.push("(p.publication_status = 'Published' OR ba.assignment_id IS NOT NULL)");
+    }
     params.push(paging.limit, paging.offset);
 
     const { rows } = await pool.query(
       `SELECT p.plant_id, p.qr_code, p.common_name, p.scientific_name, p.family, p.genus, p.species,
-              p.conservation_status, p.publication_status, p.location_visibility,
+              p.conservation_status, p.publication_status, p.location_visibility, p.general_location,
               p.registered_by, u.full_name AS registered_by_name, p.created_at, p.updated_at,
               (SELECT ph.photo_url FROM plant_photos ph WHERE ph.plant_id = p.plant_id
                ORDER BY ph.uploaded_at, ph.photo_id LIMIT 1) AS cover_photo_url,
@@ -184,10 +184,11 @@ async function listPlants(req, res) {
       params
     );
 
-    const plants = rows.map(({ total, assigned_to_me, ...plant }) => ({
-      ...plant,
-      full_detail: isExternalBotanist ? assigned_to_me : true
-    }));
+    const plants = rows.map(({ total, assigned_to_me, ...plant }) => (
+      isExternalBotanist && !assigned_to_me
+        ? { plant_id: plant.plant_id, ...buildPublicListItem(plant), full_detail: false }
+        : { ...plant, full_detail: true }
+    ));
 
     res.json({
       plants,
@@ -211,11 +212,11 @@ async function getPlantById(req, res) {
       return res.status(404).json({ error: 'Plant not found' });
     }
 
-    let plant = rows[0];
+    const plant = rows[0];
 
-    const fullDetail = await canSeeFullDetail(req.user, id);
-    if (!fullDetail) {
-      plant = stripToBasicInfo(plant);
+    if (!(await canSeeFullDetail(req.user, id))) {
+      const view = restrictedView(plant);
+      return view ? res.json(view) : res.status(404).json({ error: 'Plant not found' });
     }
 
     const { rows: photos } = await pool.query(
@@ -223,7 +224,7 @@ async function getPlantById(req, res) {
       [id]
     );
 
-    res.json({ ...plant, photos, full_detail: fullDetail });
+    res.json({ ...plant, photos, full_detail: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error while fetching plant' });
@@ -240,13 +241,13 @@ async function getPlantByQrCode(req, res) {
       return res.status(404).json({ error: 'No plant found for this QR code' });
     }
 
-    let plant = rows[0];
-    const fullDetail = await canSeeFullDetail(req.user, plant.plant_id);
-    if (!fullDetail) {
-      plant = stripToBasicInfo(plant);
+    const plant = rows[0];
+    if (!(await canSeeFullDetail(req.user, plant.plant_id))) {
+      const view = restrictedView(plant);
+      return view ? res.json(view) : res.status(404).json({ error: 'No plant found for this QR code' });
     }
 
-    res.json({ ...plant, full_detail: fullDetail });
+    res.json({ ...plant, full_detail: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error while looking up QR code' });
@@ -515,6 +516,5 @@ module.exports = {
   updatePlant,
   updateVisibility,
   canSeeFullDetail,
-  stripToBasicInfo,
   parseJson
 };
