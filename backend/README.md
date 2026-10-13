@@ -55,6 +55,105 @@ It is already set up in the team's Supabase project.
 - `publication_status` — `Under Research` (staff only, the default) or `Published` (Park Visitors can see it).
 - `location_visibility` — how much location visitors see: `Public` (exact GPS), `Approximate` (area name only, from `general_location`), or `Hidden`.
 
+### Fields
+
+These are the names the API uses in requests and responses.
+
+**`plants`**
+
+"Set by" says how a field gets its value: **register** = `POST /api/plants`,
+**edit** = `PATCH /api/plants/:id` or an approved EDIT request,
+**publish** = `PATCH /api/plants/:id/visibility` (Officer/Admin), **auto** = the backend.
+
+| Field | Type / limits | Set by | Notes |
+|---|---|---|---|
+| `plant_id` | number | auto | |
+| `qr_code` | text, e.g. `SFC-2E524325` | auto | Unique. Never changes |
+| `scientific_name` | text, max 150 | register, edit | **Required** |
+| `common_name` | text, max 150 | register, edit | |
+| `family`, `genus`, `species` | text, max 100 each | register, edit | |
+| `height_cm`, `width_cm` | number 0–9999.99 | register, edit | 🔒 · Returned as a string, e.g. `"50.00"` |
+| `latitude` | number −90 to 90 | register, edit | 🔒 · Send together with `longitude` · Returned as a string |
+| `longitude` | number −180 to 180 | register, edit | 🔒 · Returned as a string |
+| `morphological_notes` | text, max 10000 | register, edit | 🔒 · Appearance (leaves, flowers…) |
+| `surrounding_environment` | text, max 10000 | register, edit | 🔒 · Habitat |
+| `conservation_status` | text, max 100 | edit | e.g. "Endangered" |
+| `ecological_role` | text, max 10000 | edit | |
+| `medicinal_use` | text, max 10000 | edit | |
+| `cultural_significance` | text, max 10000 | edit | |
+| `publication_status` | `Under Research` / `Published` | publish | Default `Under Research` |
+| `location_visibility` | `Public` / `Approximate` / `Hidden` | publish | Must be chosen when publishing |
+| `general_location` | text, max 150 | publish | 🔒 · Area name shown for `Approximate`, e.g. "Niah National Park" |
+| `registered_by` | user id | auto | List responses also include `registered_by_name` |
+| `created_at`, `updated_at` | date (ISO string) | auto | |
+
+🔒 = left out for an External Botanist who isn't assigned to the plant (`full_detail: false`).
+
+Park Visitors (public endpoints) see the names, classification, size, `morphological_notes`,
+`conservation_status`, `ecological_role`, `medicinal_use` and `cultural_significance`, plus:
+`Public` → `latitude`, `longitude`, `surrounding_environment`, `general_location` ·
+`Approximate` → `general_location` only · `Hidden` → no location. The public catalog list shows only names,
+classification, `conservation_status` and `general_location`.
+
+**`users`**
+
+| Field | Type / limits | Notes |
+|---|---|---|
+| `user_id` | number | |
+| `full_name` | text, max 100 | |
+| `email` | text, max 150 | Unique, not case-sensitive (`Ali@x.com` = `ali@x.com`) |
+| `password` | text | Only sent when creating an account. Stored encrypted and never returned |
+| `role_name` | `Botanist` / `Conservation Officer` / `Admin` | |
+| `botanist_type` | `Internal` / `External` / `null` | Only for Botanists |
+| `is_active` | `true` / `false` | `false` = deactivated, can't log in |
+| `created_at` | date | |
+
+**`plant_photos`**
+
+| Field | Notes |
+|---|---|
+| `photo_id` | |
+| `plant_id` | Deleted together with the plant |
+| `photo_url` | Full public link to the image in Supabase Storage |
+| `uploaded_by` | user id |
+| `uploaded_at` | date |
+
+**`record_change_requests`**
+
+| Field | Notes |
+|---|---|
+| `request_id` | |
+| `plant_id` | Becomes `null` if the plant is deleted |
+| `plant_qr_code_snapshot`, `plant_scientific_name_snapshot` | Copy of the plant's QR code and name when the request was sent, so you can still tell which plant it was after a deletion |
+| `request_type` | `EDIT` / `DELETE` |
+| `proposed_changes` | For `EDIT`: the new values, e.g. `{ "height_cm": 150 }` (only editable fields). `null` for `DELETE` |
+| `requested_by`, `requested_at` | Who sent it and when (lists add `requested_by_name`) |
+| `status` | `Pending` / `Approved` / `Rejected` |
+| `reviewed_by`, `reviewed_at`, `review_comment` | Filled in when an Officer reviews it (`/mine` adds `reviewed_by_name`) |
+
+**`botanist_assignments`**
+
+| Field | Notes |
+|---|---|
+| `assignment_id` | |
+| `botanist_id` | The External Botanist |
+| `plant_id` | Each botanist/plant pair only once |
+| `assigned_by`, `assigned_at` | Who assigned it and when |
+
+**`audit_logs`** (shown through `GET /api/plants/:id/history`)
+
+| Field | Notes |
+|---|---|
+| `log_id` | |
+| `user_id` | Who did it (history adds `user_name` and `role_name`) |
+| `action` | `CREATE_PLANT`, `UPDATE_PLANT`, `UPLOAD_PHOTO`, `UPDATE_VISIBILITY`, `REQUEST_EDIT`, `REQUEST_DELETE`, `APPROVED_REQUEST`, `REJECTED_REQUEST`, `CREATE_USER`, `UPDATE_USER`, `LOGIN` |
+| `target_table`, `target_id` | What it was done to, e.g. `plants` / `12` |
+| `details` | Extra info as JSON, e.g. the old → new values of an edit |
+| `created_at` | date |
+| `summary` | Added by the history endpoint: a ready-to-show sentence |
+
+**`roles`**: `role_id`, `role_name`.
+
 **Security**
 - Row Level Security is switched on for every table with no rules, so nobody can read the
   tables directly with a Supabase key. Only the backend can.
