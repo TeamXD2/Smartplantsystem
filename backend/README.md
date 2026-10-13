@@ -1,95 +1,69 @@
-# Biodiversity System — Backend
+# Biodiversity System — Backend & Database
 
-The backend (Node.js + Express + Supabase) shared by the mobile app and the web app.
-The apps send requests here; the backend checks who you are, checks what you're
-allowed to do, then reads/writes the Supabase Postgres database and stores plant
-photos in Supabase Storage.
+This is the backend and database behind the web app and the mobile app. It stores every
+plant record, photo and user account, and decides who is allowed to see or change what.
 
----
-
-## 1. Get it running
-
-The team shares **one Supabase project (SPS)**. The tables, the photo bucket and the Admin
-account already exist there, so you only need to connect to it.
-
-You need: **Node.js** and **Postman** (for testing).
-
-**Step 1 — Get the code**
-Clone the repo and switch to the `backend&Database` branch, then open a terminal in the
-`backend` folder.
-
-**Step 2 — Install packages**
-```
-npm install
-```
-(Warnings about "vulnerabilities" are expected and don't stop anything working.)
-
-**Step 3 — Add the `.env` file**
-Ask a teammate for the team's `.env` file and put it in the `backend` folder (next to
-`.env.example`). It contains the database password and secret key, so keep it private:
-never commit it, post it in a group chat, or put it in the web/mobile app.
-
-**Step 4 — Check the connection**
-```
-npm run check-supabase
-```
-It only reads, never changes anything. Every line should say `OK`.
-
-**Step 5 — Start the server**
-```
-npm run dev
-```
-When you see `Server running on http://localhost:5000`, it's working.
-Keep this terminal open — closing it stops the server.
-
-> **Every time after the first:** just `npm run dev`.
-> Free Supabase projects pause after a week without use — if requests suddenly fail,
-> tell the teammate who manages the Supabase project.
-
-**Test accounts:** ask a teammate for the login details. There is no public sign-up — only an
-Admin can create accounts (`POST /api/auth/register`). Accounts made in Supabase
-Authentication don't work here; the backend has its own `users` table.
-
-**Please don't** create, change or delete tables in the Supabase dashboard. If the database
-needs a change, tell the backend team so `sprint1_database_schema.sql` stays in sync.
+**Contents**
+1. [How it fits together](#1-how-it-fits-together)
+2. [The database](#2-the-database)
+3. [Who can do what](#3-who-can-do-what)
+4. [The life of a plant record](#4-the-life-of-a-plant-record)
+5. [Running the backend](#5-running-the-backend)
+6. [Connecting the web / mobile app](#6-connecting-the-web--mobile-app)
+7. [API reference](#7-api-reference)
+8. [Where things are in the code](#8-where-things-are-in-the-code)
+9. [Common problems](#9-common-problems)
+10. [Not built yet](#10-not-built-yet)
 
 ---
 
-## 2. For web & mobile developers
+## 1. How it fits together
 
-- Call this **backend API** — don't read Supabase directly or put any Supabase key in the
-  apps. Direct table access is blocked on purpose (Row Level Security).
-- Base URL: `http://localhost:5000`. On a **phone**, `localhost` won't work — use the
-  backend computer's local IP instead, e.g. `http://192.168.1.20:5000` (same Wi-Fi).
-- Log in with `POST /api/auth/login`, save the `token`, and send it on every request as
-  `Authorization: Bearer <token>`. If a request returns **401**, clear the token and show
-  the login screen (it expired or the account was deactivated).
-- Decimal values come back as **strings** (`height_cm: "50.00"`, `latitude: "3.8167000"`) —
-  use `Number(...)` before maths or maps.
-- `GET /api/plants/:id` returns `full_detail: false` when an External Botanist isn't
-  assigned to the plant — GPS, size and notes are left out, so show them as restricted.
-- Photo upload: `multipart/form-data`, field name `photo`, jpg/png/webp, max 5MB.
-- All endpoints are in section 6 below.
+```
+ Web app / Mobile app
+        │   HTTP requests, with the user's login token
+        ▼
+ Backend  (Node.js + Express, this folder)
+        │   1. Who is this?  2. Are they allowed?  3. Is the data valid?
+        ├──►  Supabase database (PostgreSQL) — plants, users, requests, history
+        └──►  Supabase Storage — plant photos
+```
 
----
-
-## 3. Test it with Postman
-
-A ready-made test collection is in `postman/` — 37 requests with 49 automatic checks.
-
-1. Postman → **Import** → choose `postman/Biodiversity-Sprint1.postman_collection.json`.
-2. Open **Upload plant photo** (inside *2. Plants*) → **Body** tab → in the `photo` row,
-   choose the file `postman/sample-leaf.png` → **Ctrl + S**.
-3. Click the collection → **Variables** tab → set `adminEmail` / `adminPassword` to the
-   team's Admin login (ask a teammate) → **Ctrl + S**.
-4. Click the collection → **Run** → **Run Biodiversity System - Sprint 1**.
-
-All 49 checks should pass. Each run creates test users (`...@test.com`) and plants in the
-**shared** database that everyone sees, so only run it when you need to.
+- The apps **only talk to the backend**. They never read or write Supabase directly.
+- The backend checks the user's login, their role (Botanist, Officer, Admin) and the data
+  they send, then reads/writes the database.
+- The whole team shares **one Supabase project (SPS)**, so everyone sees the same data.
 
 ---
 
-## 4. Who can do what
+## 2. The database
+
+The structure is defined in `sprint1_database_schema.sql` (in the folder above `backend`).
+It is already set up in the team's Supabase project.
+
+| Table | What it stores |
+|---|---|
+| `roles` | The 3 roles: Botanist, Conservation Officer, Admin |
+| `users` | Staff accounts: name, email, encrypted password, role, and for Botanists whether they are `Internal` or `External`. Accounts can be deactivated instead of deleted |
+| `plants` | One row per plant: names and classification, height/width, notes, GPS, conservation info, its QR code, and two visibility settings (below) |
+| `plant_photos` | Links to each plant's photos. The image files themselves are in the Supabase Storage bucket `plant-photos` |
+| `record_change_requests` | Edit/delete requests sent by Botanists, and the Officer's decision and comment |
+| `botanist_assignments` | Which External Botanist is assigned to which plant (they only see full details of their assigned plants) |
+| `audit_logs` | Every action (registered, edited, photo uploaded, approved…). This is what the plant **history** shows |
+
+**The two visibility settings on each plant**
+- `publication_status` — `Under Research` (staff only, the default) or `Published` (Park Visitors can see it).
+- `location_visibility` — how much location visitors see: `Public` (exact GPS), `Approximate` (area name only, from `general_location`), or `Hidden`.
+
+**Security**
+- Row Level Security is switched on for every table with no rules, so nobody can read the
+  tables directly with a Supabase key. Only the backend can.
+- Please **don't create, change or delete tables in the Supabase dashboard**. If the database
+  needs a change, tell the backend team so the schema file stays in sync.
+
+---
+
+## 3. Who can do what
 
 | | Park Visitor (no login) | External Botanist | Internal Botanist | Conservation Officer | Admin |
 |---|---|---|---|---|---|
@@ -99,40 +73,145 @@ All 49 checks should pass. Each run creates test users (`...@test.com`) and plan
 | Upload photos | ❌ | assigned plants only | ✅ | ✅ | ✅ |
 | Edit a plant | ❌ | send a request | ✅ directly | ✅ directly | ✅ directly |
 | Delete a plant | ❌ | send a request | send a request | approve requests | approve requests |
+| See own requests and the Officer's reply | ❌ | ✅ | ✅ | ❌ | ❌ |
 | Approve / reject requests | ❌ | ❌ | ❌ | ✅ | ✅ |
 | Publish a plant to visitors | ❌ | ❌ | ❌ | ✅ | ✅ |
 | Create / deactivate accounts | ❌ | ❌ | ❌ | ❌ | ✅ |
 
 ¹ An External Botanist is automatically assigned to plants they register.
 
+There is **no public sign-up**: only an Admin can create accounts.
+
 ---
 
-## 5. The life of a plant record
+## 4. The life of a plant record
 
 1. **Registered** — a Botanist records it in the field (name, size, GPS, photos).
    The system creates a QR code (e.g. `SFC-2E524325`) to put next to the plant.
    Status: **Under Research** — visitors can't see it.
-2. **Corrected** — Internal Botanists and Officers edit directly. External Botanists
-   send an edit request that an Officer approves or rejects.
-3. **Published** — an Officer publishes it and must choose how much location to show:
-   - `Public` — exact GPS
-   - `Approximate` — area name only, e.g. "Niah National Park"
-   - `Hidden` — no location at all
-4. **Scanned by visitors** — they see the plant info, with location shown as chosen above.
+2. **Corrected** — Internal Botanists and Officers edit directly. External Botanists send an
+   **edit request**; any Botanist who wants a plant deleted sends a **delete request**.
+3. **Reviewed** — an Officer approves or rejects each request, with an optional comment.
+   - Approved → the change (or deletion) is applied automatically.
+   - Rejected → nothing changes. The Botanist sees the status and comment in their request
+     list and can send a new request.
+   - If two Officers review the same request at the same time, only the first one counts.
+4. **Published** — an Officer publishes it and must choose how much location to show
+   (`Public`, `Approximate` or `Hidden`).
+5. **Scanned by visitors** — they see the plant info, with location shown as chosen above.
 
 Every step is recorded in the plant's **history**, e.g.
 *"Test Botanist edited this plant (Height: 50cm → 150cm)"*.
 
 ---
 
-## 6. API quick reference
+## 5. Running the backend
 
-**Logging in:** `POST /api/auth/login` with `{ "email": "...", "password": "..." }` returns a
-`token`. Send it with every other request as a header:
-```
-Authorization: Bearer <token>
-```
-Errors always come back as `{ "error": "message" }`.
+You need **Node.js**. The database, photo bucket and Admin account are already set up.
+
+1. Clone the repo, switch to the `backend&Database` branch and open a terminal in `backend`.
+2. Install packages:
+   ```
+   npm install
+   ```
+3. Ask a teammate for the team's **`.env` file** and put it in the `backend` folder (next to
+   `.env.example`). It contains the database password and secret key, so keep it private:
+   never commit it, post it in a group chat, or put it in the web/mobile app.
+4. Check the connection (read-only, every line should say `OK`):
+   ```
+   npm run check-supabase
+   ```
+5. Start the server:
+   ```
+   npm run dev
+   ```
+   When you see `Server running on http://localhost:5000`, it's working. Keep this terminal
+   open — closing it stops the server. Next time, just run `npm run dev`.
+
+**Login details:** ask a teammate for the test accounts.
+
+**Testing with Postman (optional):** import `postman/Biodiversity-Sprint1.postman_collection.json`,
+set `adminEmail` / `adminPassword` in the collection's **Variables** tab, pick
+`postman/sample-leaf.png` in *Upload plant photo* → **Body**, then **Run** the collection.
+All 49 checks should pass. Each run adds test users (`...@test.com`) and plants to the
+**shared** database, so only run it when needed.
+
+---
+
+## 6. Connecting the web / mobile app
+
+### Where to send requests
+- Web app: `http://localhost:5000`
+- Mobile app: `localhost` won't work on a phone. Use the local IP of the computer running
+  the backend, e.g. `http://192.168.1.20:5000` (both on the same Wi-Fi).
+- Don't use supabase-js or any Supabase key in the apps — everything goes through here.
+
+### Logging in
+1. `POST /api/auth/login` with `{ "email": "...", "password": "..." }`
+2. It returns:
+   ```json
+   {
+     "token": "eyJhbGci...",
+     "user": { "user_id": 1, "full_name": "System Admin", "email": "admin@...", "role_name": "Admin", "botanist_type": null }
+   }
+   ```
+3. Save the `token` and send it with **every** other request:
+   ```
+   Authorization: Bearer <token>
+   ```
+4. Use `role_name` (and `botanist_type` for Botanists) to decide which screens and buttons
+   to show. The backend checks permissions anyway — hiding a button is only for a nicer UI.
+5. The token lasts 7 days. Logging out = deleting the saved token.
+6. If any request returns **401**, the token expired or the account was deactivated: clear
+   the token and show the login screen.
+
+### What responses look like
+- Errors are always `{ "error": "message" }` — the message can be shown to the user.
+- Status codes: `400` invalid input · `401` not logged in · `403` not allowed ·
+  `404` not found · `409` conflict (e.g. already reviewed) · `429` too many failed logins.
+- ⚠️ Decimal values come back as **strings**: `"height_cm": "50.00"`,
+  `"latitude": "3.8167000"`. Use `Number(...)` before maths or maps.
+- Dates are ISO strings, e.g. `"2026-10-12T06:46:37.088Z"`.
+
+### Which endpoint each screen uses
+
+| Screen | Request |
+|---|---|
+| Login | `POST /api/auth/login` |
+| Register a plant | `POST /api/plants` → show the returned `qr_code` and `qr_code_image` |
+| Scan QR (staff) | `GET /api/plants/qr/:qr_code` |
+| Scan QR (Park Visitor, no login) | `GET /api/public/plants/qr/:qr_code` |
+| Plant details | `GET /api/plants/:id` (includes `photos`) |
+| Edit plant (Internal Botanist / Officer / Admin) | `PATCH /api/plants/:id` |
+| Add photo | `POST /api/plants/:id/photos` |
+| Plant history | `GET /api/plants/:id/history` |
+| Send edit/delete request (Botanist) | `POST /api/requests` |
+| My requests (Botanist) | `GET /api/requests/mine` |
+| Requests to review (Officer / Admin) | `GET /api/requests?status=Pending` |
+| Approve / reject | `PATCH /api/requests/:id/review` |
+| Publish / location visibility (Officer / Admin) | `PATCH /api/plants/:id/visibility` |
+| Manage accounts (Admin) | `GET /api/users`, `POST /api/auth/register`, `PATCH /api/users/:id` |
+
+### Things the UI needs to handle
+- **QR codes** — the QR just contains the `qr_code` text (e.g. `SFC-2E524325`).
+  `qr_code_image` is a ready-made PNG you can put straight into `<img src="...">`.
+- **Restricted details** — if `GET /api/plants/:id` returns `"full_detail": false`, the user
+  is an External Botanist not assigned to this plant. GPS, size and notes are left out, so
+  show them as restricted rather than empty.
+- **Visitor view** — the public scan returns 404 for unpublished plants ("not available
+  yet"). Location fields only appear if the Officer allowed them.
+- **Photo upload** — send `multipart/form-data` with the file in a field named `photo`
+  (jpg/png/webp, max 5MB). Don't set the `Content-Type` header yourself. The response has
+  the full `photo_url` to display.
+- **Editing as an External Botanist** — `PATCH /api/plants/:id` returns 403; send an
+  `EDIT` request instead and show it in *My requests*.
+- **History** — each item has a ready-to-show `summary` sentence.
+
+---
+
+## 7. API reference
+
+All routes except login and the public scan need `Authorization: Bearer <token>`.
 
 ### Accounts
 | Method | URL | Who | What it does |
@@ -157,7 +236,7 @@ Errors always come back as `{ "error": "message" }`.
 | Method | URL | Who | What it does |
 |---|---|---|---|
 | POST | `/api/requests` | Botanist | Request an edit or a delete |
-| GET | `/api/requests/mine?status=Rejected` | Botanist | See your own requests: status, reviewer and `review_comment` (`status` filter optional) |
+| GET | `/api/requests/mine?status=Rejected` | Botanist | Your own requests: status, reviewer and `review_comment` (`status` filter optional) |
 | GET | `/api/requests?status=Pending` | Officer, Admin | See waiting requests |
 | PATCH | `/api/requests/:id/review` | Officer, Admin | Approve or reject (applied automatically if approved) |
 
@@ -167,6 +246,11 @@ Errors always come back as `{ "error": "message" }`.
 | GET | `/api/public/plants/qr/:qr_code` | What a Park Visitor sees after scanning |
 
 ### Example request bodies
+
+Create an account (Admin) — `botanist_type` only for Botanists:
+```json
+{ "full_name": "Ali Botanist", "email": "ali@example.com", "password": "...", "role_name": "Botanist", "botanist_type": "External" }
+```
 
 Register a plant — only `scientific_name` is required:
 ```json
@@ -192,9 +276,9 @@ Delete request:
 ```json
 { "plant_id": 12, "request_type": "DELETE" }
 ```
-Approve a request:
+Approve or reject a request:
 ```json
-{ "decision": "Approved", "review_comment": "Checked in the field" }
+{ "decision": "Rejected", "review_comment": "Height looks wrong, please re-measure" }
 ```
 Publish a plant (`location_visibility` is required when publishing):
 ```json
@@ -203,7 +287,7 @@ Publish a plant (`location_visibility` is required when publishing):
 
 ---
 
-## 7. Where things are in the code
+## 8. Where things are in the code
 
 | Folder / file | What it's for |
 |---|---|
@@ -215,28 +299,30 @@ Publish a plant (`location_visibility` is required when publishing):
 | `utils/plantChanges.js` | Applies edits and records old → new values |
 | `utils/auditLog.js` | Writes the history / audit records |
 | `utils/qrcode.js` | Makes QR codes |
-| `config/db.js` | Supabase Postgres connection (settings come from `.env`) |
+| `config/db.js` | Supabase database connection (settings come from `.env`) |
 | `config/supabase.js` | Supabase client, used to store photos in Supabase Storage |
+| `scripts/checkSupabase.js` | `npm run check-supabase` |
 | `postman/` | The Postman test collection |
 
 ---
 
-## 8. Common problems
+## 9. Common problems
 
 | Problem | Fix |
 |---|---|
-| `ECONNREFUSED` / Postman says "Could not get response" | The server isn't running — run `npm run dev` |
-| `Missing in .env: ... - refusing to start` | The `.env` file is missing from the `backend` folder (Step 3) |
-| Terminal shows `password authentication failed` | The database password changed — ask for the latest `.env` |
-| Terminal shows `ENOTFOUND` / `ENETUNREACH` / `ETIMEDOUT` | Check your internet, or the Supabase project may be paused — tell the teammate who manages it. Some school/office Wi-Fi blocks port 5432; try a phone hotspot |
-| Photo upload returns 502 "Could not store the photo" | Your `.env` may be outdated — ask for the latest one, then run `npm run check-supabase` |
-| Login says "Invalid email or password" | Check the email/password with a teammate. Supabase Authentication accounts don't work here |
+| `ECONNREFUSED` / "Could not get response" | The server isn't running — run `npm run dev` |
+| `Missing in .env: ... - refusing to start` | The `.env` file is missing from the `backend` folder |
+| `password authentication failed` | The database password changed — ask for the latest `.env` |
+| `ENOTFOUND` / `ENETUNREACH` / `ETIMEDOUT` | Check your internet, or the Supabase project may be paused — tell the teammate who manages it. Some school/office Wi-Fi blocks the database port; try a phone hotspot |
+| Phone app can't reach the backend | Use the computer's local IP (not `localhost`), same Wi-Fi on both, and allow Node.js through the Windows firewall |
+| Photo upload returns 502 | Your `.env` may be outdated — ask for the latest one, then run `npm run check-supabase` |
+| "Invalid email or password" | Check the login with a teammate. Accounts made in Supabase Authentication don't work here |
 | "Too many login attempts" | 10 wrong passwords in 15 minutes — wait, or restart the server |
-| Photo upload fails in Postman | Choose the file again in the request's **Body** tab |
 
 ---
 
-## 9. Not built yet
+## 10. Not built yet
 
-- Sprint 2: Officer deletes a plant directly, search & filter, Admin views audit log,
-  password reset, researcher access requests, reports, IoT sensors, offline sync.
+- A plant list / search endpoint (for a species directory or "all plants" page)
+- Officer deletes a plant directly, Admin views the audit log, password reset
+- Sprint 2+: researcher access requests, reports, IoT sensors, offline sync
