@@ -7,88 +7,89 @@ photos in Supabase Storage.
 
 ---
 
-## 1. Get it running (first time)
+## 1. Get it running
 
-You need: **Node.js**, a free **Supabase** account (https://supabase.com) and **Postman** (for testing).
+The team shares **one Supabase project (SPS)**. The tables, the photo bucket and the Admin
+account already exist there, so you only need to connect to it.
 
-**Step 1 — Create a Supabase project**
-Supabase Dashboard → **New project**. Pick a region close to you (e.g. Singapore) and
-write down the **database password** you choose — you need it in Step 4.
+You need: **Node.js** and **Postman** (for testing).
 
-**Step 2 — Create the tables**
-In your project: **SQL Editor** → **New query** → paste the whole of
-`sprint1_database_schema.sql` (in the folder above `backend`) → **Run**.
-**Table Editor** should now show 7 tables.
+**Step 1 — Get the code**
+Clone the repo and switch to the `backend&Database` branch, then open a terminal in the
+`backend` folder.
 
-**Step 3 — Create the photo bucket**
-**Storage** → **New bucket** → name it `plant-photos` → turn on **Public bucket** → **Create**.
-
-**Step 4 — Install packages and create your `.env` file**
-In a terminal inside the `backend` folder:
+**Step 2 — Install packages**
 ```
 npm install
 ```
 (Warnings about "vulnerabilities" are expected and don't stop anything working.)
 
-Copy `.env.example` and rename the copy to `.env`, then fill in:
-| Setting | Where to find it |
-|---|---|
-| `DATABASE_URL` | Click **Connect** (top of the dashboard) → **Session pooler** → copy the URI and replace `[YOUR-PASSWORD]` with your database password |
-| `SUPABASE_URL` | **Project Settings** → **API** → Project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | **Project Settings** → **API** → `service_role` key (secret — never put it in the mobile/web app) |
-| `JWT_SECRET` | Any long random text, at least 32 characters |
+**Step 3 — Add the `.env` file**
+Ask a teammate for the team's `.env` file and put it in the `backend` folder (next to
+`.env.example`). It contains the database password and secret key, so keep it private:
+never commit it, post it in a group chat, or put it in the web/mobile app.
 
-**Step 5 — Create the first Admin account**
-Only an Admin can create accounts, so the first Admin is added by hand.
-
-a) Make a password hash (replace `Admin123` with the password you want):
-```
-node -e "require('bcrypt').hash('Admin123',10).then(console.log)"
-```
-b) In Supabase **SQL Editor**, paste this (put your hash in) and click **Run**:
-```sql
-INSERT INTO users (full_name, email, password_hash, role_id)
-VALUES ('System Admin', 'admin@example.com', 'PASTE-HASH-HERE',
-        (SELECT role_id FROM roles WHERE role_name = 'Admin'));
-```
-
-**Check the setup (optional)**
+**Step 4 — Check the connection**
 ```
 npm run check-supabase
 ```
-It only reads, never changes anything, and tells you if tables, the Admin account or the
-photo bucket are missing. Every line should say `OK`.
+It only reads, never changes anything. Every line should say `OK`.
 
-**Step 6 — Start the server**
+**Step 5 — Start the server**
 ```
 npm run dev
 ```
 When you see `Server running on http://localhost:5000`, it's working.
 Keep this terminal open — closing it stops the server.
 
-> **Every time after the first:** just `npm run dev` (Supabase is always online).
-> Free Supabase projects pause after a week without use — if requests start failing,
-> open the dashboard and click **Restore project**.
+> **Every time after the first:** just `npm run dev`.
+> Free Supabase projects pause after a week without use — if requests suddenly fail,
+> tell the teammate who manages the Supabase project.
+
+**Test accounts:** ask a teammate for the login details. There is no public sign-up — only an
+Admin can create accounts (`POST /api/auth/register`). Accounts made in Supabase
+Authentication don't work here; the backend has its own `users` table.
+
+**Please don't** create, change or delete tables in the Supabase dashboard. If the database
+needs a change, tell the backend team so `sprint1_database_schema.sql` stays in sync.
 
 ---
 
-## 2. Test it with Postman
+## 2. For web & mobile developers
+
+- Call this **backend API** — don't read Supabase directly or put any Supabase key in the
+  apps. Direct table access is blocked on purpose (Row Level Security).
+- Base URL: `http://localhost:5000`. On a **phone**, `localhost` won't work — use the
+  backend computer's local IP instead, e.g. `http://192.168.1.20:5000` (same Wi-Fi).
+- Log in with `POST /api/auth/login`, save the `token`, and send it on every request as
+  `Authorization: Bearer <token>`. If a request returns **401**, clear the token and show
+  the login screen (it expired or the account was deactivated).
+- Decimal values come back as **strings** (`height_cm: "50.00"`, `latitude: "3.8167000"`) —
+  use `Number(...)` before maths or maps.
+- `GET /api/plants/:id` returns `full_detail: false` when an External Botanist isn't
+  assigned to the plant — GPS, size and notes are left out, so show them as restricted.
+- Photo upload: `multipart/form-data`, field name `photo`, jpg/png/webp, max 5MB.
+- All endpoints are in section 6 below.
+
+---
+
+## 3. Test it with Postman
 
 A ready-made test collection is in `postman/` — 37 requests with 49 automatic checks.
 
 1. Postman → **Import** → choose `postman/Biodiversity-Sprint1.postman_collection.json`.
 2. Open **Upload plant photo** (inside *2. Plants*) → **Body** tab → in the `photo` row,
    choose the file `postman/sample-leaf.png` → **Ctrl + S**.
-3. If your Admin isn't `admin@example.com` / `Admin123`: click the collection →
-   **Variables** tab → change `adminEmail` / `adminPassword` → **Ctrl + S**.
+3. Click the collection → **Variables** tab → set `adminEmail` / `adminPassword` to the
+   team's Admin login (ask a teammate) → **Ctrl + S**.
 4. Click the collection → **Run** → **Run Biodiversity System - Sprint 1**.
 
-All 49 checks should pass. Each run creates new test users and plants, so you can
-run it as many times as you like.
+All 49 checks should pass. Each run creates test users (`...@test.com`) and plants in the
+**shared** database that everyone sees, so only run it when you need to.
 
 ---
 
-## 3. Who can do what
+## 4. Who can do what
 
 | | Park Visitor (no login) | External Botanist | Internal Botanist | Conservation Officer | Admin |
 |---|---|---|---|---|---|
@@ -106,7 +107,7 @@ run it as many times as you like.
 
 ---
 
-## 4. The life of a plant record
+## 5. The life of a plant record
 
 1. **Registered** — a Botanist records it in the field (name, size, GPS, photos).
    The system creates a QR code (e.g. `SFC-2E524325`) to put next to the plant.
@@ -124,7 +125,7 @@ Every step is recorded in the plant's **history**, e.g.
 
 ---
 
-## 5. API quick reference
+## 6. API quick reference
 
 **Logging in:** `POST /api/auth/login` with `{ "email": "...", "password": "..." }` returns a
 `token`. Send it with every other request as a header:
@@ -202,7 +203,7 @@ Publish a plant (`location_visibility` is required when publishing):
 
 ---
 
-## 6. Where things are in the code
+## 7. Where things are in the code
 
 | Folder / file | What it's for |
 |---|---|
@@ -220,23 +221,22 @@ Publish a plant (`location_visibility` is required when publishing):
 
 ---
 
-## 7. Common problems
+## 8. Common problems
 
 | Problem | Fix |
 |---|---|
 | `ECONNREFUSED` / Postman says "Could not get response" | The server isn't running — run `npm run dev` |
-| `Missing in .env: ... - refusing to start` | You haven't created or filled in `.env` (Step 4) |
-| Terminal shows `password authentication failed` | Wrong database password in `DATABASE_URL` — you can reset it under **Project Settings → Database** |
-| Terminal shows `ENOTFOUND` / `ENETUNREACH` / `ETIMEDOUT` | Use the **Session pooler** connection string (the "Direct connection" one needs IPv6), and check the project isn't paused |
-| Terminal shows `relation "users" does not exist` | The tables weren't created — redo Step 2 |
-| Photo upload returns 502 "Could not store the photo" | The `plant-photos` bucket is missing or the `SUPABASE_SERVICE_ROLE_KEY` is wrong — check Step 3/4 |
-| Login says "Invalid email or password" for the Admin | Check Step 5 — the hash must be made from the same password you type |
+| `Missing in .env: ... - refusing to start` | The `.env` file is missing from the `backend` folder (Step 3) |
+| Terminal shows `password authentication failed` | The database password changed — ask for the latest `.env` |
+| Terminal shows `ENOTFOUND` / `ENETUNREACH` / `ETIMEDOUT` | Check your internet, or the Supabase project may be paused — tell the teammate who manages it. Some school/office Wi-Fi blocks port 5432; try a phone hotspot |
+| Photo upload returns 502 "Could not store the photo" | Your `.env` may be outdated — ask for the latest one, then run `npm run check-supabase` |
+| Login says "Invalid email or password" | Check the email/password with a teammate. Supabase Authentication accounts don't work here |
 | "Too many login attempts" | 10 wrong passwords in 15 minutes — wait, or restart the server |
 | Photo upload fails in Postman | Choose the file again in the request's **Body** tab |
 
 ---
 
-## 8. Not built yet
+## 9. Not built yet
 
 - Sprint 2: Officer deletes a plant directly, search & filter, Admin views audit log,
   password reset, researcher access requests, reports, IoT sensors, offline sync.

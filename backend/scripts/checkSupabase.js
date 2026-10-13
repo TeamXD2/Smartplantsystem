@@ -54,7 +54,7 @@ async function checkDatabase() {
     const extra = rows.map((r) => r.table_name).filter((t) => !EXPECTED_TABLES[t]);
 
     if (missing.length === Object.keys(EXPECTED_TABLES).length) {
-      bad('None of our tables exist yet - run sprint1_database_schema.sql in the SQL Editor');
+      bad('None of our tables exist - check DATABASE_URL points at the team project, or tell the backend team');
     } else if (missing.length > 0) {
       bad(`Missing tables: ${missing.join(', ')}`);
     }
@@ -83,7 +83,7 @@ async function checkDatabase() {
          WHERE r.role_name = 'Admin'`
       );
       if (admins.length === 0) {
-        bad('No Admin account yet - create one (README Step 5)');
+        bad('No Admin account found - tell the backend team');
       } else {
         for (const a of admins) {
           if (!a.bcrypt) bad(`Admin ${a.email}: password_hash is not a bcrypt hash, login will fail`);
@@ -123,7 +123,7 @@ async function checkStorage() {
   const { data: bucket, error } = await supabase.storage.getBucket(bucketName);
   if (error) {
     if (/not found/i.test(error.message)) {
-      bad(`Bucket "${bucketName}" does not exist - create it in Storage and turn on "Public bucket"`);
+      bad(`Bucket "${bucketName}" does not exist - tell the backend team`);
     } else {
       bad(`Cannot reach Storage: ${error.message} (check SUPABASE_URL and the secret key)`);
     }

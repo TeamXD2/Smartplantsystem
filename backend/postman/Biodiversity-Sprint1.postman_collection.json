@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Biodiversity System - Sprint 1",
-    "description": "Postman tests for the biodiversity backend.\n\nBefore running:\n1. Run `npm run dev` in the backend folder (with `.env` pointing at your Supabase project).\n2. Make sure the first Admin exists (see README). Default test login: admin@example.com / Admin123 - change adminEmail/adminPassword in the collection Variables tab if yours differs.\n\nRun the folders in order (or the whole collection with Run). Tokens, plant IDs and QR codes are saved automatically and reused by later requests.\n\nPhoto upload: if the upload request has no file, open it, go to Body and choose any image (e.g. postman/sample-leaf.png in the backend folder).",
+    "description": "Postman tests for the biodiversity backend.\n\nBefore running:\n1. Run `npm run dev` in the backend folder (with the team's `.env`).\n2. Collection Variables tab: set adminEmail / adminPassword to the team's Admin login (ask a teammate).\n\nNote: each run creates test users (...@test.com) and plants in the shared database.\n\nRun the folders in order (or the whole collection with Run). Tokens, plant IDs and QR codes are saved automatically and reused by later requests.\n\nPhoto upload: if the upload request has no file, open it, go to Body and choose any image (e.g. postman/sample-leaf.png in the backend folder).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -11,11 +11,11 @@
     },
     {
       "key": "adminEmail",
-      "value": "admin@example.com"
+      "value": ""
     },
     {
       "key": "adminPassword",
-      "value": "Admin123"
+      "value": ""
     },
     {
       "key": "testPassword",
