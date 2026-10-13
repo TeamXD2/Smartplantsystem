@@ -849,6 +849,151 @@
           ]
         },
         {
+          "name": "List plants (staff)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/plants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "plants"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{botanistToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('List returned', () => pm.response.to.have.status(200));",
+                  "pm.test('Has paging info and the new plant, without GPS', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.total).to.be.a('number');",
+                  "  pm.expect(json.page).to.eql(1);",
+                  "  const mine = (list, id) => list.find((p) => String(p.plant_id) === String(id));",
+                  "  const plant = mine(json.plants, pm.collectionVariables.get('plantId'));",
+                  "  pm.expect(plant).to.be.an('object');",
+                  "  pm.expect(plant.full_detail).to.eql(true);",
+                  "  pm.expect(plant).to.not.have.property('latitude');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search my plants",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/plants?mine=true&search=pitcher",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "plants"
+              ],
+              "query": [
+                {
+                  "key": "mine",
+                  "value": "true"
+                },
+                {
+                  "key": "search",
+                  "value": "pitcher"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{botanistToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Search returned', () => pm.response.to.have.status(200));",
+                  "pm.test('Only matching plants, including the new one', () => {",
+                  "  const plants = pm.response.json().plants;",
+                  "  pm.expect(plants.map((p) => String(p.plant_id))).to.include(String(pm.collectionVariables.get('plantId')));",
+                  "  plants.forEach((p) => pm.expect([p.scientific_name, p.common_name, p.family].join(' ')).to.match(/pitcher/i));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List with invalid page (should fail)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/plants?page=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "plants"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{botanistToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rejected with 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Upload plant photo",
           "request": {
             "method": "POST",
@@ -1152,6 +1297,56 @@
                 "exec": [
                   "pm.test('Plant registered', () => pm.response.to.have.status(201));",
                   "pm.collectionVariables.set('externalPlantId', pm.response.json().plant_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "External Botanist list shows which plants are restricted",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/plants?limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "plants"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{externalToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('List returned', () => pm.response.to.have.status(200));",
+                  "pm.test('full_detail is true only for the assigned plant', () => {",
+                  "  const mine = (list, id) => list.find((p) => String(p.plant_id) === String(id));",
+                  "  const plants = pm.response.json().plants;",
+                  "  pm.expect(mine(plants, pm.collectionVariables.get('externalPlantId')).full_detail).to.eql(true);",
+                  "  pm.expect(mine(plants, pm.collectionVariables.get('plantId')).full_detail).to.eql(false);",
+                  "});"
                 ]
               }
             }
@@ -1645,6 +1840,52 @@
           ]
         },
         {
+          "name": "Species catalog hides unpublished plant",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/public/plants?search=Nepenthes&limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "public",
+                "plants"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "Nepenthes"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Catalog returned', () => pm.response.to.have.status(200));",
+                  "pm.test('Unpublished plant is not listed', () => {",
+                  "  const codes = pm.response.json().plants.map((p) => p.qr_code);",
+                  "  pm.expect(codes).to.not.include(pm.collectionVariables.get('qrCode'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Officer publishes without choosing location visibility (should fail)",
           "request": {
             "method": "PATCH",
@@ -1787,6 +2028,56 @@
                   "  pm.expect(json).to.not.have.property('latitude');",
                   "  pm.expect(json).to.not.have.property('longitude');",
                   "  pm.expect(json).to.not.have.property('registered_by');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Species catalog shows published plant, no GPS",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/public/plants?search=Nepenthes&limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "public",
+                "plants"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "Nepenthes"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Catalog returned', () => pm.response.to.have.status(200));",
+                  "pm.test('Published plant listed with area name only', () => {",
+                  "  const plant = pm.response.json().plants.find((p) => p.qr_code === pm.collectionVariables.get('qrCode'));",
+                  "  pm.expect(plant).to.be.an('object');",
+                  "  pm.expect(plant.general_location).to.eql('Niah National Park');",
+                  "  pm.expect(plant).to.not.have.property('latitude');",
+                  "  pm.expect(plant).to.not.have.property('longitude');",
+                  "  pm.expect(plant).to.not.have.property('plant_id');",
                   "});"
                 ]
               }

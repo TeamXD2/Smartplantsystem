@@ -6,6 +6,7 @@ const { generateQrCodeString, generateQrCodeImage } = require('../utils/qrcode')
 const { logAction } = require('../utils/auditLog');
 const { validatePlantFields } = require('../utils/validatePlant');
 const { pickEditableFields, applyPlantChanges } = require('../utils/plantChanges');
+const { parsePaging, likePattern } = require('../utils/listQuery');
 
 // Fields considered "full detail" - restricted for an External Botanist
 // unless they are assigned to this specific plant (see botanist_assignments).
@@ -126,6 +127,77 @@ async function createPlant(req, res) {
     res.status(500).json({ error: 'Server error while registering plant' });
   } finally {
     if (connection) connection.release();
+  }
+}
+
+// GET /api/plants?search=&publication_status=&mine=true&page=&limit=
+// (authenticated staff) - plant list for dashboards / "my records".
+// Every role sees every plant here, but only summary columns: none of the
+// FULL_DETAIL_FIELDS (GPS, size, notes) are included, so nothing has to be
+// hidden from External Botanists. full_detail says whether opening the plant
+// with GET /api/plants/:id will show everything.
+async function listPlants(req, res) {
+  try {
+    const paging = parsePaging(req.query);
+    if (paging.error) {
+      return res.status(400).json({ error: paging.error });
+    }
+    const { search, publication_status, mine } = req.query;
+    if (publication_status !== undefined && !['Under Research', 'Published'].includes(publication_status)) {
+      return res.status(400).json({ error: "publication_status must be 'Under Research' or 'Published'" });
+    }
+
+    const isExternalBotanist = req.user.role_name === 'Botanist' && req.user.botanist_type === 'External';
+    const params = [req.user.user_id];
+    const conditions = [];
+
+    if (search && search.trim()) {
+      params.push(likePattern(search));
+      const n = params.length;
+      conditions.push(
+        `(p.scientific_name ILIKE $${n} ESCAPE '\\' OR p.common_name ILIKE $${n} ESCAPE '\\' OR p.family ILIKE $${n} ESCAPE '\\')`
+      );
+    }
+    if (publication_status) {
+      params.push(publication_status);
+      conditions.push(`p.publication_status = $${params.length}`);
+    }
+    if (mine === 'true') {
+      conditions.push('p.registered_by = $1');
+    }
+    params.push(paging.limit, paging.offset);
+
+    const { rows } = await pool.query(
+      `SELECT p.plant_id, p.qr_code, p.common_name, p.scientific_name, p.family, p.genus, p.species,
+              p.conservation_status, p.publication_status, p.location_visibility,
+              p.registered_by, u.full_name AS registered_by_name, p.created_at, p.updated_at,
+              (SELECT ph.photo_url FROM plant_photos ph WHERE ph.plant_id = p.plant_id
+               ORDER BY ph.uploaded_at, ph.photo_id LIMIT 1) AS cover_photo_url,
+              (ba.assignment_id IS NOT NULL) AS assigned_to_me,
+              COUNT(*) OVER () AS total
+       FROM plants p
+       JOIN users u ON u.user_id = p.registered_by
+       LEFT JOIN botanist_assignments ba ON ba.plant_id = p.plant_id AND ba.botanist_id = $1
+       ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+       ORDER BY p.created_at DESC, p.plant_id DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+
+    const plants = rows.map(({ total, assigned_to_me, ...plant }) => ({
+      ...plant,
+      full_detail: isExternalBotanist ? assigned_to_me : true
+    }));
+
+    res.json({
+      plants,
+      total: rows.length > 0 ? Number(rows[0].total) : 0,
+      page: paging.page,
+      limit: paging.limit
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error while fetching plants' });
   }
 }
 
@@ -435,6 +507,7 @@ async function updateVisibility(req, res) {
 
 module.exports = {
   createPlant,
+  listPlants,
   getPlantById,
   getPlantByQrCode,
   uploadPlantPhoto,

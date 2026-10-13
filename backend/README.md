@@ -133,7 +133,7 @@ You need **Node.js**. The database, photo bucket and Admin account are already s
 **Testing with Postman (optional):** import `postman/Biodiversity-Sprint1.postman_collection.json`,
 set `adminEmail` / `adminPassword` in the collection's **Variables** tab, pick
 `postman/sample-leaf.png` in *Upload plant photo* → **Body**, then **Run** the collection.
-All 49 checks should pass. Each run adds test users (`...@test.com`) and plants to the
+All 60 checks should pass. Each run adds test users (`...@test.com`) and plants to the
 **shared** database, so only run it when needed.
 
 ---
@@ -178,6 +178,9 @@ All 49 checks should pass. Each run adds test users (`...@test.com`) and plants 
 | Screen | Request |
 |---|---|
 | Login | `POST /api/auth/login` |
+| Species catalog (public, no login) | `GET /api/public/plants?search=` → open one with `GET /api/public/plants/qr/:qr_code` |
+| Plant list / dashboard (staff) | `GET /api/plants?search=&publication_status=` |
+| My records (plants I registered) | `GET /api/plants?mine=true` |
 | Register a plant | `POST /api/plants` → show the returned `qr_code` and `qr_code_image` |
 | Scan QR (staff) | `GET /api/plants/qr/:qr_code` |
 | Scan QR (Park Visitor, no login) | `GET /api/public/plants/qr/:qr_code` |
@@ -206,6 +209,10 @@ All 49 checks should pass. Each run adds test users (`...@test.com`) and plants 
 - **Editing as an External Botanist** — `PATCH /api/plants/:id` returns 403; send an
   `EDIT` request instead and show it in *My requests*.
 - **History** — each item has a ready-to-show `summary` sentence.
+- **Lists** — list endpoints return `{ plants, total, page, limit }`. Use `?page=2` for the next
+  page (`limit` is 20 by default, max 100). Lists only have summary fields (names, status,
+  `cover_photo_url`); open a plant for its full details. The public catalog never includes
+  GPS or photos.
 
 ---
 
@@ -224,6 +231,7 @@ All routes except login and the public scan need `Authorization: Bearer <token>`
 ### Plants
 | Method | URL | Who | What it does |
 |---|---|---|---|
+| GET | `/api/plants?search=&publication_status=&mine=true&page=&limit=` | logged in | Plant list (all filters optional). `full_detail` says if opening the plant shows everything |
 | POST | `/api/plants` | logged in | Register a plant, returns its QR code |
 | GET | `/api/plants/qr/:qr_code` | logged in | Find a plant by scanning its QR |
 | GET | `/api/plants/:id` | logged in | View a plant |
@@ -243,7 +251,27 @@ All routes except login and the public scan need `Authorization: Bearer <token>`
 ### Public (no login)
 | Method | URL | What it does |
 |---|---|---|
+| GET | `/api/public/plants?search=&page=&limit=` | Species catalog: published plants only, area name but no GPS or photos |
 | GET | `/api/public/plants/qr/:qr_code` | What a Park Visitor sees after scanning |
+
+### Example list response
+
+`GET /api/plants?search=pitcher`:
+```json
+{
+  "plants": [
+    {
+      "plant_id": 12, "qr_code": "SFC-2E524325", "common_name": "Pitcher Plant",
+      "scientific_name": "Nepenthes rafflesiana", "family": "Nepenthaceae",
+      "publication_status": "Under Research", "registered_by_name": "Ali Botanist",
+      "cover_photo_url": "https://...supabase.co/storage/v1/object/public/plant-photos/...",
+      "full_detail": true, "created_at": "2026-10-12T06:46:37.088Z"
+    }
+  ],
+  "total": 1, "page": 1, "limit": 20
+}
+```
+Search matches scientific name, common name and family (not case-sensitive).
 
 ### Example request bodies
 
@@ -299,6 +327,7 @@ Publish a plant (`location_visibility` is required when publishing):
 | `utils/plantChanges.js` | Applies edits and records old → new values |
 | `utils/auditLog.js` | Writes the history / audit records |
 | `utils/qrcode.js` | Makes QR codes |
+| `utils/listQuery.js` | Paging and search for list endpoints |
 | `config/db.js` | Supabase database connection (settings come from `.env`) |
 | `config/supabase.js` | Supabase client, used to store photos in Supabase Storage |
 | `scripts/checkSupabase.js` | `npm run check-supabase` |
@@ -323,6 +352,5 @@ Publish a plant (`location_visibility` is required when publishing):
 
 ## 10. Not built yet
 
-- A plant list / search endpoint (for a species directory or "all plants" page)
 - Officer deletes a plant directly, Admin views the audit log, password reset
 - Sprint 2+: researcher access requests, reports, IoT sensors, offline sync

@@ -7,6 +7,7 @@ const validateId = require('../middleware/validateId');
 const upload = require('../middleware/upload');
 const {
   createPlant,
+  listPlants,
   getPlantById,
   getPlantByQrCode,
   uploadPlantPhoto,
@@ -22,6 +23,7 @@ router.param('id', validateId);
 router.use(authenticate);
 
 router.post('/', createPlant);                          // Register new plant
+router.get('/', listPlants);                            // Plant list (search, filter, "mine")
 router.get('/qr/:qr_code', getPlantByQrCode);            // QR scan lookup (staff)
 router.get('/:id', getPlantById);                        // View record (filtered for External Botanists)
 router.patch('/:id', updatePlant);                       // Direct edit (External Botanists are refused in the controller)

@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { parsePaging, likePattern } = require('../utils/listQuery');
 
 // Only these columns ever reach the public - new columns stay private by
 // default. Height/width/appearance are included since they don't
@@ -8,6 +9,52 @@ const PUBLIC_FIELDS = [
   'height_cm', 'width_cm', 'morphological_notes', 'conservation_status',
   'ecological_role', 'medicinal_use', 'cultural_significance'
 ];
+
+// GET /api/public/plants?search=&page=&limit=
+// No authentication - the public species catalog. Published plants only,
+// and never any coordinates: a list would let someone collect the GPS of
+// every plant at once. Only the area name is shown, and only when the
+// Officer allowed location to be shown at all. Photos are left out too,
+// since uploaded photos can carry GPS in their metadata.
+// Open a plant with GET /api/public/plants/qr/:qr_code for the full view.
+async function listPublicPlants(req, res) {
+  try {
+    const paging = parsePaging(req.query);
+    if (paging.error) {
+      return res.status(400).json({ error: paging.error });
+    }
+
+    const params = [];
+    let searchCondition = '';
+    if (req.query.search && req.query.search.trim()) {
+      params.push(likePattern(req.query.search));
+      searchCondition = `AND (scientific_name ILIKE $1 ESCAPE '\\' OR common_name ILIKE $1 ESCAPE '\\' OR family ILIKE $1 ESCAPE '\\')`;
+    }
+    params.push(paging.limit, paging.offset);
+
+    const { rows } = await pool.query(
+      `SELECT qr_code, common_name, scientific_name, family, genus, species, conservation_status,
+              CASE WHEN location_visibility IN ('Public', 'Approximate') THEN general_location END
+                AS general_location,
+              COUNT(*) OVER () AS total
+       FROM plants
+       WHERE publication_status = 'Published' ${searchCondition}
+       ORDER BY COALESCE(common_name, scientific_name), plant_id
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+
+    res.json({
+      plants: rows.map(({ total, ...plant }) => plant),
+      total: rows.length > 0 ? Number(rows[0].total) : 0,
+      page: paging.page,
+      limit: paging.limit
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error while fetching plants' });
+  }
+}
 
 // GET /api/public/plants/qr/:qr_code
 // No authentication - this is what a Park Visitor hits when they scan a
@@ -50,4 +97,4 @@ async function getPublicPlantByQrCode(req, res) {
   }
 }
 
-module.exports = { getPublicPlantByQrCode };
+module.exports = { listPublicPlants, getPublicPlantByQrCode };
