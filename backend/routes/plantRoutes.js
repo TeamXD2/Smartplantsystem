@@ -3,6 +3,7 @@ const router = express.Router();
 
 const authenticate = require('../middleware/auth');
 const requireRole = require('../middleware/role');
+const validateId = require('../middleware/validateId');
 const upload = require('../middleware/upload');
 const {
   createPlant,
@@ -15,6 +16,9 @@ const {
 } = require('../controllers/plantController');
 
 // All routes here require login (Botanist/Officer/Admin)
+// Reject non-numeric ids before they reach Postgres
+router.param('id', validateId);
+
 router.use(authenticate);
 
 router.post('/', createPlant);                          // Register new plant

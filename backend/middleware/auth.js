@@ -21,11 +21,11 @@ async function authenticate(req, res, next) {
   try {
     // Re-read role/status so deactivation or role changes apply immediately,
     // not only after the token expires.
-    const [rows] = await pool.query(
+    const { rows } = await pool.query(
       `SELECT u.user_id, u.is_active, u.botanist_type, r.role_id, r.role_name
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
-       WHERE u.user_id = ?`,
+       WHERE u.user_id = $1`,
       [decoded.user_id]
     );
     if (rows.length === 0 || !rows[0].is_active) {

@@ -1,6 +1,4 @@
 const multer = require('multer');
-const path = require('path');
-const crypto = require('crypto');
 
 // Extension comes from the checked mimetype, never from the client's filename,
 // so nobody can upload "evil.html" disguised as an image.
@@ -11,17 +9,10 @@ const MIME_TO_EXT = {
   'image/webp': '.webp'
 };
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '..', 'uploads'));
-  },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${MIME_TO_EXT[file.mimetype]}`);
-  }
-});
-
+// Photos are kept in memory (req.file.buffer) only long enough to be sent
+// to Supabase Storage by the controller - nothing is written to disk.
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max per photo
   fileFilter: (req, file, cb) => {
     if (MIME_TO_EXT[file.mimetype]) {
@@ -33,3 +24,4 @@ const upload = multer({
 });
 
 module.exports = upload;
+module.exports.MIME_TO_EXT = MIME_TO_EXT;

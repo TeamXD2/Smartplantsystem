@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Biodiversity System - Sprint 1",
-    "description": "Postman tests for the biodiversity backend.\n\nBefore running:\n1. Start MySQL in XAMPP and run `npm run dev` in the backend folder.\n2. Make sure the first Admin exists (see README). Default test login: admin@example.com / Admin123 - change adminEmail/adminPassword in the collection Variables tab if yours differs.\n\nRun the folders in order (or the whole collection with Run). Tokens, plant IDs and QR codes are saved automatically and reused by later requests.\n\nPhoto upload: if the upload request has no file, open it, go to Body and choose any image (e.g. postman/sample-leaf.png in the backend folder).",
+    "description": "Postman tests for the biodiversity backend.\n\nBefore running:\n1. Run `npm run dev` in the backend folder (with `.env` pointing at your Supabase project).\n2. Make sure the first Admin exists (see README). Default test login: admin@example.com / Admin123 - change adminEmail/adminPassword in the collection Variables tab if yours differs.\n\nRun the folders in order (or the whole collection with Run). Tokens, plant IDs and QR codes are saved automatically and reused by later requests.\n\nPhoto upload: if the upload request has no file, open it, go to Body and choose any image (e.g. postman/sample-leaf.png in the backend folder).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -67,6 +67,10 @@
     },
     {
       "key": "requestId",
+      "value": ""
+    },
+    {
+      "key": "rejectedRequestId",
       "value": ""
     }
   ],
@@ -890,7 +894,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Photo uploaded', () => pm.response.to.have.status(201));",
-                  "pm.test('Photo URL returned', () => pm.expect(pm.response.json().photo_url).to.match(/^\\/uploads\\//));"
+                  "pm.test('Photo URL returned', () => pm.expect(pm.response.json().photo_url).to.match(/\\/storage\\/v1\\/object\\/public\\//));"
                 ]
               }
             }
@@ -1400,6 +1404,201 @@
                   "  pm.expect(json.common_name).to.eql('Corpse Flower');",
                   "  pm.expect(Number(json.height_cm)).to.eql(80);",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "External Botanist submits a second edit request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "requests"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{externalToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plant_id\": \"{{externalPlantId}}\",\n  \"request_type\": \"EDIT\",\n  \"proposed_changes\": {\n    \"height_cm\": 999\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Request submitted', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('rejectedRequestId', pm.response.json().request_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Officer rejects request with a reason",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/requests/{{rejectedRequestId}}/review",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "requests",
+                "{{rejectedRequestId}}",
+                "review"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{officerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"Rejected\",\n  \"review_comment\": \"Height looks wrong, please re-measure\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rejected', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "External Botanist sees own requests and the rejection reason",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/requests/mine",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "requests",
+                "mine"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{externalToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Own requests returned', () => pm.response.to.have.status(200));",
+                  "pm.test('Rejected request shows status and reason', () => {",
+                  "  const list = pm.response.json();",
+                  "  const rejected = list.find((r) => String(r.request_id) === String(pm.collectionVariables.get('rejectedRequestId')));",
+                  "  pm.expect(rejected.status).to.eql('Rejected');",
+                  "  pm.expect(rejected.review_comment).to.eql('Height looks wrong, please re-measure');",
+                  "  pm.expect(rejected.reviewed_by_name).to.be.a('string');",
+                  "  const approved = list.find((r) => String(r.request_id) === String(pm.collectionVariables.get('requestId')));",
+                  "  pm.expect(approved.status).to.eql('Approved');",
+                  "  pm.expect(list).to.have.lengthOf(2);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Officer opens Botanist-only list (should fail)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/requests/mine",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "requests",
+                "mine"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{officerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refused with 403', () => pm.response.to.have.status(403));"
                 ]
               }
             }

@@ -5,7 +5,7 @@ const { logAction } = require('../utils/auditLog');
 // Lists all accounts so an Admin can find the user_id to manage.
 async function listUsers(req, res) {
   try {
-    const [rows] = await pool.query(
+    const { rows } = await pool.query(
       `SELECT u.user_id, u.full_name, u.email, r.role_name, u.botanist_type, u.is_active
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
@@ -37,11 +37,11 @@ async function updateUser(req, res) {
       if (typeof is_active !== 'boolean') {
         return res.status(400).json({ error: 'is_active must be true or false' });
       }
-      updates.is_active = is_active ? 1 : 0;
+      updates.is_active = is_active;
     }
 
     if (role_name !== undefined) {
-      const [roleRows] = await pool.query('SELECT role_id FROM roles WHERE role_name = ?', [role_name]);
+      const { rows: roleRows } = await pool.query('SELECT role_id FROM roles WHERE role_name = $1', [role_name]);
       if (roleRows.length === 0) {
         return res.status(400).json({ error: 'Invalid role_name' });
       }
@@ -60,11 +60,11 @@ async function updateUser(req, res) {
       return res.status(400).json({ error: 'Nothing to update' });
     }
 
-    const [result] = await pool.query(
-      `UPDATE users SET ${fields.map((f) => `${f} = ?`).join(', ')} WHERE user_id = ?`,
+    const result = await pool.query(
+      `UPDATE users SET ${fields.map((f, i) => `${f} = $${i + 1}`).join(', ')} WHERE user_id = $${fields.length + 1}`,
       [...fields.map((f) => updates[f]), id]
     );
-    if (result.affectedRows === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
 

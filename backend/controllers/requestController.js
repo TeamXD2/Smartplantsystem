@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const { logAction } = require('../utils/auditLog');
 const { canSeeFullDetail, parseJson } = require('./plantController');
+const { isValidId } = require('../middleware/validateId');
 const { validatePlantFields } = require('../utils/validatePlant');
 const { pickEditableFields, applyPlantChanges } = require('../utils/plantChanges');
 
@@ -15,6 +16,9 @@ async function submitRequest(req, res) {
     if (!plant_id || !request_type) {
       return res.status(400).json({ error: 'plant_id and request_type are required' });
     }
+    if (!isValidId(plant_id)) {
+      return res.status(404).json({ error: 'Plant not found' });
+    }
     if (!['EDIT', 'DELETE'].includes(request_type)) {
       return res.status(400).json({ error: "request_type must be 'EDIT' or 'DELETE'" });
     }
@@ -22,8 +26,8 @@ async function submitRequest(req, res) {
       return res.status(400).json({ error: 'Internal Botanists edit directly via PATCH /api/plants/:id' });
     }
 
-    const [plantRows] = await pool.query(
-      'SELECT plant_id, qr_code, scientific_name FROM plants WHERE plant_id = ?',
+    const { rows: plantRows } = await pool.query(
+      'SELECT plant_id, qr_code, scientific_name FROM plants WHERE plant_id = $1',
       [plant_id]
     );
     if (plantRows.length === 0) {
@@ -54,11 +58,12 @@ async function submitRequest(req, res) {
       changesToStore = values;
     }
 
-    const [result] = await pool.query(
+    const { rows: [created] } = await pool.query(
       `INSERT INTO record_change_requests
         (plant_id, plant_qr_code_snapshot, plant_scientific_name_snapshot,
          request_type, proposed_changes, requested_by)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING request_id`,
       [
         plant_id, plant.qr_code, plant.scientific_name,
         request_type, changesToStore ? JSON.stringify(changesToStore) : null, req.user.user_id
@@ -70,10 +75,10 @@ async function submitRequest(req, res) {
       action: `REQUEST_${request_type}`,
       target_table: 'plants',
       target_id: plant_id,
-      details: { request_id: result.insertId, proposed_changes: changesToStore }
+      details: { request_id: created.request_id, proposed_changes: changesToStore }
     });
 
-    res.status(201).json({ message: 'Request submitted', request_id: result.insertId, status: 'Pending' });
+    res.status(201).json({ message: 'Request submitted', request_id: created.request_id, status: 'Pending' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error while submitting request' });
@@ -94,16 +99,48 @@ async function listRequests(req, res) {
     const params = [];
 
     if (status) {
-      query += ' WHERE r.status = ?';
+      query += ' WHERE r.status = $1';
       params.push(status);
     }
     query += ' ORDER BY r.requested_at DESC';
 
-    const [rows] = await pool.query(query, params);
+    const { rows } = await pool.query(query, params);
     res.json(rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error while fetching requests' });
+  }
+}
+
+// GET /api/requests/mine?status=Rejected
+// A Botanist's own requests, so they can see whether each one was approved
+// or rejected and read the reviewer's comment. plant_id is null if the plant
+// was deleted since - the snapshot columns still say which plant it was.
+async function listMyRequests(req, res) {
+  try {
+    const { status } = req.query;
+
+    let query = `
+      SELECT r.request_id, r.plant_id, r.plant_qr_code_snapshot, r.plant_scientific_name_snapshot,
+             r.request_type, r.proposed_changes, r.requested_at, r.status,
+             r.reviewed_at, r.review_comment, u.full_name AS reviewed_by_name
+      FROM record_change_requests r
+      LEFT JOIN users u ON r.reviewed_by = u.user_id
+      WHERE r.requested_by = $1
+    `;
+    const params = [req.user.user_id];
+
+    if (status) {
+      query += ' AND r.status = $2';
+      params.push(status);
+    }
+    query += ' ORDER BY r.requested_at DESC, r.request_id DESC';
+
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error while fetching your requests' });
   }
 }
 
@@ -120,22 +157,22 @@ async function reviewRequest(req, res) {
 
   let connection;
   try {
-    connection = await pool.getConnection();
-    await connection.beginTransaction();
+    connection = await pool.connect();
+    await connection.query('BEGIN');
 
     // Lock the request row so two reviewers can't both approve it.
-    const [requestRows] = await connection.query(
-      'SELECT * FROM record_change_requests WHERE request_id = ? FOR UPDATE',
+    const { rows: requestRows } = await connection.query(
+      'SELECT * FROM record_change_requests WHERE request_id = $1 FOR UPDATE',
       [id]
     );
     if (requestRows.length === 0) {
-      await connection.rollback();
+      await connection.query('ROLLBACK');
       return res.status(404).json({ error: 'Request not found' });
     }
     const request = requestRows[0];
 
     if (request.status !== 'Pending') {
-      await connection.rollback();
+      await connection.query('ROLLBACK');
       return res.status(409).json({ error: `Request has already been ${request.status}` });
     }
 
@@ -148,34 +185,34 @@ async function reviewRequest(req, res) {
           connection, request.plant_id, parseJson(request.proposed_changes)
         );
         if (!fieldChanges) {
-          await connection.rollback();
+          await connection.query('ROLLBACK');
           return res.status(409).json({ error: 'This plant no longer exists' });
         }
         auditDetails.changes = fieldChanges;
       } else if (request.request_type === 'DELETE') {
         // Capture the full record before it's gone, for the audit trail.
-        const [beforeRows] = await connection.query(
-          'SELECT * FROM plants WHERE plant_id = ? FOR UPDATE',
+        const { rows: beforeRows } = await connection.query(
+          'SELECT * FROM plants WHERE plant_id = $1 FOR UPDATE',
           [request.plant_id]
         );
         if (beforeRows.length === 0) {
-          await connection.rollback();
+          await connection.query('ROLLBACK');
           return res.status(409).json({ error: 'This plant no longer exists' });
         }
         auditDetails.deleted_record = beforeRows[0];
 
-        await connection.query('DELETE FROM plants WHERE plant_id = ?', [request.plant_id]);
+        await connection.query('DELETE FROM plants WHERE plant_id = $1', [request.plant_id]);
       }
     }
 
     await connection.query(
       `UPDATE record_change_requests
-       SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_comment = ?
-       WHERE request_id = ?`,
+       SET status = $1, reviewed_by = $2, reviewed_at = NOW(), review_comment = $3
+       WHERE request_id = $4`,
       [decision, req.user.user_id, review_comment || null, id]
     );
 
-    await connection.commit();
+    await connection.query('COMMIT');
 
     await logAction({
       user_id: req.user.user_id,
@@ -187,7 +224,7 @@ async function reviewRequest(req, res) {
 
     res.json({ message: `Request ${decision.toLowerCase()}`, request_id: id });
   } catch (err) {
-    if (connection) await connection.rollback().catch(() => {});
+    if (connection) await connection.query('ROLLBACK').catch(() => {});
     console.error(err);
     res.status(500).json({ error: 'Server error while reviewing request' });
   } finally {
@@ -195,4 +232,4 @@ async function reviewRequest(req, res) {
   }
 }
 
-module.exports = { submitRequest, listRequests, reviewRequest };
+module.exports = { submitRequest, listRequests, listMyRequests, reviewRequest };

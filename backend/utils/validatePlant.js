@@ -1,8 +1,8 @@
 // Checks plant fields against the database column limits (see plants table),
-// so bad input gets a clear 400 message instead of a MySQL error / 500.
+// so bad input gets a clear 400 message instead of a database error / 500.
 
 // Max length per text column. VARCHAR sizes come from the schema; TEXT
-// columns are capped at 10000 characters to stay well under MySQL's 64KB.
+// columns are capped at 10000 characters to keep records a sensible size.
 const TEXT_LIMITS = {
   common_name: 150,
   scientific_name: 150,

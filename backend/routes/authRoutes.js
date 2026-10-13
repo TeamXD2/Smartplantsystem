@@ -16,7 +16,7 @@ const loginLimiter = rateLimit({
   message: { error: 'Too many login attempts, please try again in 15 minutes' }
 });
 
-// Only an Admin can create accounts. The first Admin must be inserted directly in MySQL.
+// Only an Admin can create accounts. The first Admin must be inserted directly in Supabase (SQL Editor).
 router.post('/register', authenticate, requireRole('Admin'), register);
 router.post('/login', loginLimiter, login);
 

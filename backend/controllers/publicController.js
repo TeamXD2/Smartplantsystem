@@ -16,7 +16,7 @@ async function getPublicPlantByQrCode(req, res) {
   try {
     const { qr_code } = req.params;
 
-    const [rows] = await pool.query('SELECT * FROM plants WHERE qr_code = ?', [qr_code]);
+    const { rows } = await pool.query('SELECT * FROM plants WHERE qr_code = $1', [qr_code]);
     if (rows.length === 0) {
       return res.status(404).json({ error: 'No plant found for this QR code' });
     }

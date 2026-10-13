@@ -17,23 +17,24 @@ async function register(req, res) {
     }
 
     // Look up role_id from role_name
-    const [roleRows] = await pool.query('SELECT role_id FROM roles WHERE role_name = ?', [role_name]);
+    const { rows: roleRows } = await pool.query('SELECT role_id FROM roles WHERE role_name = $1', [role_name]);
     if (roleRows.length === 0) {
       return res.status(400).json({ error: 'Invalid role_name' });
     }
     const role_id = roleRows[0].role_id;
 
-    // Check email not already used
-    const [existing] = await pool.query('SELECT user_id FROM users WHERE email = ?', [email]);
+    // Check email not already used (case-insensitive, matching the unique index)
+    const { rows: existing } = await pool.query('SELECT user_id FROM users WHERE LOWER(email) = LOWER($1)', [email]);
     if (existing.length > 0) {
       return res.status(409).json({ error: 'Email already registered' });
     }
 
     const password_hash = await bcrypt.hash(password, 10);
 
-    const [result] = await pool.query(
+    const { rows: [created] } = await pool.query(
       `INSERT INTO users (full_name, email, password_hash, role_id, botanist_type)
-       VALUES (?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING user_id`,
       [full_name, email, password_hash, role_id, botanist_type || null]
     );
 
@@ -41,12 +42,16 @@ async function register(req, res) {
       user_id: req.user ? req.user.user_id : null, // null if this is public self-registration
       action: 'CREATE_USER',
       target_table: 'users',
-      target_id: result.insertId,
+      target_id: created.user_id,
       details: { role_name, botanist_type: botanist_type || null }
     });
 
-    res.status(201).json({ message: 'User created', user_id: result.insertId });
+    res.status(201).json({ message: 'User created', user_id: created.user_id });
   } catch (err) {
+    // Unique-index violation: same email registered at the same moment
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Email already registered' });
+    }
     console.error(err);
     res.status(500).json({ error: 'Server error during registration' });
   }
@@ -61,12 +66,12 @@ async function login(req, res) {
       return res.status(400).json({ error: 'email and password are required' });
     }
 
-    const [rows] = await pool.query(
+    const { rows } = await pool.query(
       `SELECT u.user_id, u.full_name, u.email, u.password_hash, u.is_active,
               u.botanist_type, r.role_id, r.role_name
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
-       WHERE u.email = ?`,
+       WHERE LOWER(u.email) = LOWER($1)`,
       [email]
     );
 

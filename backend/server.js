@@ -1,11 +1,12 @@
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const multer = require('multer');
 require('dotenv').config();
 
-if (!process.env.JWT_SECRET) {
-  console.error('JWT_SECRET is not set - refusing to start');
+const REQUIRED_ENV = ['JWT_SECRET', 'DATABASE_URL', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
+const missingEnv = REQUIRED_ENV.filter((name) => !process.env[name]);
+if (missingEnv.length > 0) {
+  console.error(`Missing in .env: ${missingEnv.join(', ')} - refusing to start`);
   process.exit(1);
 }
 
@@ -19,12 +20,6 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
-
-// Serve uploaded photos as static files (e.g. http://localhost:5000/uploads/xxx.jpg)
-// nosniff stops browsers from treating an uploaded file as anything but its declared type.
-app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
-  setHeaders: (res) => res.set('X-Content-Type-Options', 'nosniff')
-}));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);         // Admin account management

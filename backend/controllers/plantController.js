@@ -1,5 +1,7 @@
-const fs = require('fs/promises');
+const crypto = require('crypto');
 const pool = require('../config/db');
+const { supabase, PHOTO_BUCKET } = require('../config/supabase');
+const { MIME_TO_EXT } = require('../middleware/upload');
 const { generateQrCodeString, generateQrCodeImage } = require('../utils/qrcode');
 const { logAction } = require('../utils/auditLog');
 const { validatePlantFields } = require('../utils/validatePlant');
@@ -12,7 +14,7 @@ const FULL_DETAIL_FIELDS = [
   'height_cm', 'width_cm', 'general_location'
 ];
 
-// mysql2 returns JSON columns already parsed, TEXT columns as strings.
+// pg returns JSON/JSONB columns already parsed, TEXT columns as strings.
 function parseJson(value) {
   return typeof value === 'string' ? JSON.parse(value) : value;
 }
@@ -24,8 +26,8 @@ async function canSeeFullDetail(user, plant_id) {
   if (user.role_name !== 'Botanist' || user.botanist_type !== 'External') {
     return true;
   }
-  const [rows] = await pool.query(
-    'SELECT 1 FROM botanist_assignments WHERE botanist_id = ? AND plant_id = ?',
+  const { rows } = await pool.query(
+    'SELECT 1 FROM botanist_assignments WHERE botanist_id = $1 AND plant_id = $2',
     [user.user_id, plant_id]
   );
   return rows.length > 0;
@@ -75,15 +77,16 @@ async function createPlant(req, res) {
 
     // Plant + assignment are written together, so an External Botanist never
     // ends up with a plant they registered but can't access.
-    connection = await pool.getConnection();
-    await connection.beginTransaction();
+    connection = await pool.connect();
+    await connection.query('BEGIN');
 
-    const [result] = await connection.query(
+    const { rows: [created] } = await connection.query(
       `INSERT INTO plants
         (qr_code, common_name, scientific_name, family, genus, species,
          height_cm, width_cm, morphological_notes, surrounding_environment,
          latitude, longitude, registered_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       RETURNING plant_id`,
       [
         qr_code, common_name, scientific_name, family, genus, species,
         height_cm, width_cm, morphological_notes, surrounding_environment,
@@ -93,12 +96,12 @@ async function createPlant(req, res) {
 
     if (isExternalBotanist) {
       await connection.query(
-        'INSERT INTO botanist_assignments (botanist_id, plant_id, assigned_by) VALUES (?, ?, ?)',
-        [registered_by, result.insertId, registered_by]
+        'INSERT INTO botanist_assignments (botanist_id, plant_id, assigned_by) VALUES ($1, $2, $3)',
+        [registered_by, created.plant_id, registered_by]
       );
     }
 
-    await connection.commit();
+    await connection.query('COMMIT');
 
     const qrImage = await generateQrCodeImage(qr_code);
 
@@ -106,19 +109,19 @@ async function createPlant(req, res) {
       user_id: registered_by,
       action: 'CREATE_PLANT',
       target_table: 'plants',
-      target_id: result.insertId,
+      target_id: created.plant_id,
       details: { scientific_name, qr_code, auto_assigned: isExternalBotanist }
     });
 
     res.status(201).json({
       message: 'Plant registered successfully',
-      plant_id: result.insertId,
+      plant_id: created.plant_id,
       qr_code,
       qr_code_image: qrImage,
       publication_status: 'Under Research'
     });
   } catch (err) {
-    if (connection) await connection.rollback().catch(() => {});
+    if (connection) await connection.query('ROLLBACK').catch(() => {});
     console.error(err);
     res.status(500).json({ error: 'Server error while registering plant' });
   } finally {
@@ -131,7 +134,7 @@ async function getPlantById(req, res) {
   try {
     const { id } = req.params;
 
-    const [rows] = await pool.query('SELECT * FROM plants WHERE plant_id = ?', [id]);
+    const { rows } = await pool.query('SELECT * FROM plants WHERE plant_id = $1', [id]);
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Plant not found' });
     }
@@ -143,8 +146,8 @@ async function getPlantById(req, res) {
       plant = stripToBasicInfo(plant);
     }
 
-    const [photos] = await pool.query(
-      'SELECT photo_id, photo_url, uploaded_at FROM plant_photos WHERE plant_id = ?',
+    const { rows: photos } = await pool.query(
+      'SELECT photo_id, photo_url, uploaded_at FROM plant_photos WHERE plant_id = $1 ORDER BY uploaded_at',
       [id]
     );
 
@@ -160,7 +163,7 @@ async function getPlantByQrCode(req, res) {
   try {
     const { qr_code } = req.params;
 
-    const [rows] = await pool.query('SELECT * FROM plants WHERE qr_code = ?', [qr_code]);
+    const { rows } = await pool.query('SELECT * FROM plants WHERE qr_code = $1', [qr_code]);
     if (rows.length === 0) {
       return res.status(404).json({ error: 'No plant found for this QR code' });
     }
@@ -200,16 +203,16 @@ async function updatePlant(req, res) {
 
   let connection;
   try {
-    connection = await pool.getConnection();
-    await connection.beginTransaction();
+    connection = await pool.connect();
+    await connection.query('BEGIN');
 
     const fieldChanges = await applyPlantChanges(connection, id, values);
     if (!fieldChanges) {
-      await connection.rollback();
+      await connection.query('ROLLBACK');
       return res.status(404).json({ error: 'Plant not found' });
     }
 
-    await connection.commit();
+    await connection.query('COMMIT');
 
     await logAction({
       user_id: req.user.user_id,
@@ -221,7 +224,7 @@ async function updatePlant(req, res) {
 
     res.json({ message: 'Plant updated', changes: fieldChanges });
   } catch (err) {
-    if (connection) await connection.rollback().catch(() => {});
+    if (connection) await connection.query('ROLLBACK').catch(() => {});
     console.error(err);
     res.status(500).json({ error: 'Server error while updating plant' });
   } finally {
@@ -238,36 +241,51 @@ async function uploadPlantPhoto(req, res) {
       return res.status(400).json({ error: 'No photo file uploaded' });
     }
 
-    const [plantRows] = await pool.query('SELECT plant_id FROM plants WHERE plant_id = ?', [id]);
+    const { rows: plantRows } = await pool.query('SELECT plant_id FROM plants WHERE plant_id = $1', [id]);
     if (plantRows.length === 0) {
-      await fs.unlink(req.file.path).catch(() => {});
       return res.status(404).json({ error: 'Plant not found' });
     }
 
     if (!(await canSeeFullDetail(req.user, id))) {
-      await fs.unlink(req.file.path).catch(() => {});
       return res.status(403).json({ error: 'You are not assigned to this plant' });
     }
 
-    const photo_url = `/uploads/${req.file.filename}`;
+    // Upload to Supabase Storage as plants/<id>/<time>-<random>.<ext>
+    const storagePath = `plants/${id}/${Date.now()}-${crypto.randomBytes(8).toString('hex')}${MIME_TO_EXT[req.file.mimetype]}`;
+    const { error: uploadError } = await supabase.storage
+      .from(PHOTO_BUCKET)
+      .upload(storagePath, req.file.buffer, { contentType: req.file.mimetype });
+    if (uploadError) {
+      console.error('Supabase Storage upload failed:', uploadError);
+      return res.status(502).json({ error: 'Could not store the photo, please try again' });
+    }
+
+    const photo_url = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(storagePath).data.publicUrl;
     const uploaded_by = req.user.user_id;
 
-    const [result] = await pool.query(
-      'INSERT INTO plant_photos (plant_id, photo_url, uploaded_by) VALUES (?, ?, ?)',
-      [id, photo_url, uploaded_by]
-    );
+    let created;
+    try {
+      ({ rows: [created] } = await pool.query(
+        'INSERT INTO plant_photos (plant_id, photo_url, uploaded_by) VALUES ($1, $2, $3) RETURNING photo_id',
+        [id, photo_url, uploaded_by]
+      ));
+    } catch (err) {
+      // Don't leave an orphaned file in the bucket if the database insert fails.
+      await supabase.storage.from(PHOTO_BUCKET).remove([storagePath]).catch(() => {});
+      throw err;
+    }
 
     await logAction({
       user_id: uploaded_by,
       action: 'UPLOAD_PHOTO',
       target_table: 'plants',
       target_id: id,
-      details: { photo_id: result.insertId, photo_url }
+      details: { photo_id: created.photo_id, photo_url }
     });
 
     res.status(201).json({
       message: 'Photo uploaded successfully',
-      photo_id: result.insertId,
+      photo_id: created.photo_id,
       photo_url
     });
   } catch (err) {
@@ -342,14 +360,14 @@ async function getPlantHistory(req, res) {
       return res.status(403).json({ error: 'You do not have access to this plant\'s history' });
     }
 
-    const [logs] = await pool.query(
+    const { rows: logs } = await pool.query(
       `SELECT a.log_id, a.user_id, u.full_name AS user_name, r.role_name,
               a.action, a.details, a.created_at
        FROM audit_logs a
        LEFT JOIN users u ON a.user_id = u.user_id
        LEFT JOIN roles r ON u.role_id = r.role_id
-       WHERE a.target_table = 'plants' AND a.target_id = ?
-       ORDER BY a.created_at DESC`,
+       WHERE a.target_table = 'plants' AND a.target_id = $1
+       ORDER BY a.created_at DESC, a.log_id DESC`,
       [id]
     );
 
@@ -392,11 +410,11 @@ async function updateVisibility(req, res) {
       return res.status(400).json({ error: 'Nothing to update' });
     }
 
-    const [result] = await pool.query(
-      `UPDATE plants SET ${fields.map((f) => `${f} = ?`).join(', ')} WHERE plant_id = ?`,
+    const result = await pool.query(
+      `UPDATE plants SET ${fields.map((f, i) => `${f} = $${i + 1}`).join(', ')} WHERE plant_id = $${fields.length + 1}`,
       [...fields.map((f) => updates[f]), id]
     );
-    if (result.affectedRows === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Plant not found' });
     }
 

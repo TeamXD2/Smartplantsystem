@@ -54,8 +54,8 @@ function pickEditableFields(input) {
 async function applyPlantChanges(connection, plantId, changes) {
   const fields = Object.keys(changes).filter((f) => EDITABLE_FIELDS.includes(f));
 
-  const [beforeRows] = await connection.query(
-    `SELECT ${fields.join(', ')} FROM plants WHERE plant_id = ? FOR UPDATE`,
+  const { rows: beforeRows } = await connection.query(
+    `SELECT ${fields.join(', ')} FROM plants WHERE plant_id = $1 FOR UPDATE`,
     [plantId]
   );
   if (beforeRows.length === 0) {
@@ -64,7 +64,7 @@ async function applyPlantChanges(connection, plantId, changes) {
   const before = beforeRows[0];
 
   await connection.query(
-    `UPDATE plants SET ${fields.map((f) => `${f} = ?`).join(', ')} WHERE plant_id = ?`,
+    `UPDATE plants SET ${fields.map((f, i) => `${f} = $${i + 1}`).join(', ')} WHERE plant_id = $${fields.length + 1}`,
     [...fields.map((f) => changes[f]), plantId]
   );
 

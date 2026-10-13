@@ -7,7 +7,7 @@ async function logAction({ user_id = null, action, target_table = null, target_i
   try {
     await pool.query(
       `INSERT INTO audit_logs (user_id, action, target_table, target_id, details)
-       VALUES (?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5)`,
       [user_id, action, target_table, target_id, details ? JSON.stringify(details) : null]
     );
   } catch (err) {

@@ -1,36 +1,42 @@
 # Biodiversity System — Backend
 
-The backend (Node.js + Express + MySQL) shared by the mobile app and the web app.
+The backend (Node.js + Express + Supabase) shared by the mobile app and the web app.
 The apps send requests here; the backend checks who you are, checks what you're
-allowed to do, then reads/writes the MySQL database.
+allowed to do, then reads/writes the Supabase Postgres database and stores plant
+photos in Supabase Storage.
 
 ---
 
 ## 1. Get it running (first time)
 
-You need: **Node.js**, **XAMPP** (for MySQL + phpMyAdmin) and **Postman** (for testing).
+You need: **Node.js**, a free **Supabase** account (https://supabase.com) and **Postman** (for testing).
 
-**Step 1 — Start MySQL**
-Open the XAMPP Control Panel and click **Start** next to **Apache** and **MySQL**.
+**Step 1 — Create a Supabase project**
+Supabase Dashboard → **New project**. Pick a region close to you (e.g. Singapore) and
+write down the **database password** you choose — you need it in Step 4.
 
-**Step 2 — Create the database**
-Go to http://localhost/phpmyadmin → **Import** → choose `sprint1_database_schema.sql`
-(in the folder above `backend`) → **Go**. You should see `biodiversity_system` with 7 tables.
+**Step 2 — Create the tables**
+In your project: **SQL Editor** → **New query** → paste the whole of
+`sprint1_database_schema.sql` (in the folder above `backend`) → **Run**.
+**Table Editor** should now show 7 tables.
 
-**Step 3 — Install packages**
+**Step 3 — Create the photo bucket**
+**Storage** → **New bucket** → name it `plant-photos` → turn on **Public bucket** → **Create**.
+
+**Step 4 — Install packages and create your `.env` file**
 In a terminal inside the `backend` folder:
 ```
 npm install
 ```
 (Warnings about "vulnerabilities" are expected and don't stop anything working.)
 
-**Step 4 — Create your `.env` file**
-Copy `.env.example` and rename the copy to `.env`. With XAMPP's default settings
-you only need to change one line — set `JWT_SECRET` to any long random text:
-```
-JWT_SECRET=put-any-long-random-text-here-at-least-32-characters
-```
-(`DB_USER=root` and an empty `DB_PASSWORD=` already match XAMPP.)
+Copy `.env.example` and rename the copy to `.env`, then fill in:
+| Setting | Where to find it |
+|---|---|
+| `DATABASE_URL` | Click **Connect** (top of the dashboard) → **Session pooler** → copy the URI and replace `[YOUR-PASSWORD]` with your database password |
+| `SUPABASE_URL` | **Project Settings** → **API** → Project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Project Settings** → **API** → `service_role` key (secret — never put it in the mobile/web app) |
+| `JWT_SECRET` | Any long random text, at least 32 characters |
 
 **Step 5 — Create the first Admin account**
 Only an Admin can create accounts, so the first Admin is added by hand.
@@ -39,13 +45,19 @@ a) Make a password hash (replace `Admin123` with the password you want):
 ```
 node -e "require('bcrypt').hash('Admin123',10).then(console.log)"
 ```
-b) In phpMyAdmin, click `biodiversity_system` → **SQL** tab, paste this
-(put your hash in), and click **Go**:
+b) In Supabase **SQL Editor**, paste this (put your hash in) and click **Run**:
 ```sql
 INSERT INTO users (full_name, email, password_hash, role_id)
 VALUES ('System Admin', 'admin@example.com', 'PASTE-HASH-HERE',
         (SELECT role_id FROM roles WHERE role_name = 'Admin'));
 ```
+
+**Check the setup (optional)**
+```
+npm run check-supabase
+```
+It only reads, never changes anything, and tells you if tables, the Admin account or the
+photo bucket are missing. Every line should say `OK`.
 
 **Step 6 — Start the server**
 ```
@@ -54,13 +66,15 @@ npm run dev
 When you see `Server running on http://localhost:5000`, it's working.
 Keep this terminal open — closing it stops the server.
 
-> **Every time after the first:** start MySQL in XAMPP, then `npm run dev`.
+> **Every time after the first:** just `npm run dev` (Supabase is always online).
+> Free Supabase projects pause after a week without use — if requests start failing,
+> open the dashboard and click **Restore project**.
 
 ---
 
 ## 2. Test it with Postman
 
-A ready-made test collection is in `postman/` — 33 requests with 44 automatic checks.
+A ready-made test collection is in `postman/` — 37 requests with 49 automatic checks.
 
 1. Postman → **Import** → choose `postman/Biodiversity-Sprint1.postman_collection.json`.
 2. Open **Upload plant photo** (inside *2. Plants*) → **Body** tab → in the `photo` row,
@@ -69,7 +83,7 @@ A ready-made test collection is in `postman/` — 33 requests with 44 automatic 
    **Variables** tab → change `adminEmail` / `adminPassword` → **Ctrl + S**.
 4. Click the collection → **Run** → **Run Biodiversity System - Sprint 1**.
 
-All 44 checks should pass. Each run creates new test users and plants, so you can
+All 49 checks should pass. Each run creates new test users and plants, so you can
 run it as many times as you like.
 
 ---
@@ -142,6 +156,7 @@ Errors always come back as `{ "error": "message" }`.
 | Method | URL | Who | What it does |
 |---|---|---|---|
 | POST | `/api/requests` | Botanist | Request an edit or a delete |
+| GET | `/api/requests/mine?status=Rejected` | Botanist | See your own requests: status, reviewer and `review_comment` (`status` filter optional) |
 | GET | `/api/requests?status=Pending` | Officer, Admin | See waiting requests |
 | PATCH | `/api/requests/:id/review` | Officer, Admin | Approve or reject (applied automatically if approved) |
 
@@ -199,8 +214,8 @@ Publish a plant (`location_visibility` is required when publishing):
 | `utils/plantChanges.js` | Applies edits and records old → new values |
 | `utils/auditLog.js` | Writes the history / audit records |
 | `utils/qrcode.js` | Makes QR codes |
-| `config/db.js` | Database connection (settings come from `.env`) |
-| `uploads/` | Uploaded photos are saved here |
+| `config/db.js` | Supabase Postgres connection (settings come from `.env`) |
+| `config/supabase.js` | Supabase client, used to store photos in Supabase Storage |
 | `postman/` | The Postman test collection |
 
 ---
@@ -210,9 +225,11 @@ Publish a plant (`location_visibility` is required when publishing):
 | Problem | Fix |
 |---|---|
 | `ECONNREFUSED` / Postman says "Could not get response" | The server isn't running — run `npm run dev` |
-| Requests return "Server error…" and the terminal shows `ECONNREFUSED ...:3306` | MySQL isn't started — start it in XAMPP |
-| Terminal shows `ER_BAD_DB_ERROR` or `ER_NO_SUCH_TABLE` | The database wasn't imported — redo Step 2 |
-| `JWT_SECRET is not set - refusing to start` | You haven't created `.env` (Step 4) |
+| `Missing in .env: ... - refusing to start` | You haven't created or filled in `.env` (Step 4) |
+| Terminal shows `password authentication failed` | Wrong database password in `DATABASE_URL` — you can reset it under **Project Settings → Database** |
+| Terminal shows `ENOTFOUND` / `ENETUNREACH` / `ETIMEDOUT` | Use the **Session pooler** connection string (the "Direct connection" one needs IPv6), and check the project isn't paused |
+| Terminal shows `relation "users" does not exist` | The tables weren't created — redo Step 2 |
+| Photo upload returns 502 "Could not store the photo" | The `plant-photos` bucket is missing or the `SUPABASE_SERVICE_ROLE_KEY` is wrong — check Step 3/4 |
 | Login says "Invalid email or password" for the Admin | Check Step 5 — the hash must be made from the same password you type |
 | "Too many login attempts" | 10 wrong passwords in 15 minutes — wait, or restart the server |
 | Photo upload fails in Postman | Choose the file again in the request's **Body** tab |
