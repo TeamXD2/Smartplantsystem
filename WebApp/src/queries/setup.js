@@ -1,21 +1,13 @@
-// First-run admin setup. See the "FIRST-RUN ADMIN SETUP" section of
-// supabase/schema.sql for the two database functions this calls - the
-// actual "has an admin been created yet?" check and the one-time
-// promotion both happen in the database, not here, so the browser can
-// never grant admin access on its own.
-import { supabase } from '../supabaseClient';
+// First-run setup: creating the very first administrator. The backend allows this
+// only while the database has no Admin at all.
+import { api } from '../api';
 
-// Anyone, even a signed-out visitor, can check whether the admin
-// account has been set up yet.
-export async function checkAdminExists() {
-  const { data, error } = await supabase.rpc('admin_exists');
-  if (error) throw error;
-  return data;
+// -> { setup_required: boolean, key_required: boolean }
+export function fetchSetupStatus() {
+  return api('/api/setup/status', { auth: false });
 }
 
-// Promotes the currently signed-in user to admin. Only succeeds if no
-// admin account exists yet - enforced by the database, not this code.
-export async function claimFirstAdmin() {
-  const { error } = await supabase.rpc('claim_first_admin');
-  if (error) throw error;
+// account: { full_name, email, password, setup_key? }
+export function createFirstAdmin(account) {
+  return api('/api/setup/admin', { method: 'POST', body: account, auth: false });
 }

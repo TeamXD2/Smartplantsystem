@@ -1,81 +1,49 @@
-// Wraps Supabase Auth so the rest of the app can just call useAuth().
-//
-// Supabase keeps two separate things per user:
-//   1. auth.users   - handled entirely by Supabase (email, password, session)
-//   2. profiles     - our own table (name, role, is_active) - see schema.sql
-// `user` below is those two merged together, which is what every
-// component in this app actually wants (id + email + name + role).
+// Signs the user in through the backend (POST /api/auth/login) and keeps the
+// returned token. `user` is what the backend says about the logged-in person:
+// { user_id, full_name, email, role_name, botanist_type }.
 import { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../supabaseClient';
+import { api, tokenStore } from '../api';
 
 const AuthContext = createContext(null);
-
-async function fetchProfile(userId) {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, name, email, role, is_active')
-    .eq('id', userId)
-    .single();
-  if (error) throw error;
-  return data;
-}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [initialized, setInitialized] = useState(false);
 
-  // Loads whichever session Supabase already has (e.g. from a previous
-  // visit), then keeps `user` in sync with sign-in/sign-out from anywhere.
+  // After a page reload: if a token was saved, ask the backend who it belongs to.
+  // This also catches a token that expired or an account that was deactivated.
   useEffect(() => {
-    async function loadFromSession(session) {
-      setUser(session ? await fetchProfile(session.user.id) : null);
+    if (!tokenStore.get()) {
+      setInitialized(true);
+      return;
     }
+    api('/api/auth/me')
+      .then((data) => setUser(data.user))
+      .catch(() => tokenStore.clear())
+      .finally(() => setInitialized(true));
+  }, []);
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      loadFromSession(session).finally(() => setInitialized(true));
-    });
-
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
-      loadFromSession(session);
-    });
-
-    return () => subscription.subscription.unsubscribe();
+  // api() fires this when the backend rejects the saved token.
+  useEffect(() => {
+    const onExpired = () => setUser(null);
+    window.addEventListener('auth:expired', onExpired);
+    return () => window.removeEventListener('auth:expired', onExpired);
   }, []);
 
   async function login(email, password) {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    const profile = await fetchProfile(data.user.id);
-    setUser(profile);
-    return profile;
+    const data = await api('/api/auth/login', { method: 'POST', body: { email, password }, auth: false });
+    tokenStore.set(data.token);
+    setUser(data.user);
+    return data.user;
   }
 
-  // New accounts always start as 'botanist' (enforced by the database
-  // default, not by this code - see supabase/schema.sql).
-  async function register(name, email, password) {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { name } },
-    });
-    if (error) throw error;
-
-    // If your Supabase project has "Confirm email" turned on, signUp
-    // does not return a session yet - the person must click the emailed
-    // link before they can log in.
-    if (!data.session) return { confirmationRequired: true };
-
-    const profile = await fetchProfile(data.user.id);
-    setUser(profile);
-    return { confirmationRequired: false, profile };
-  }
-
-  async function logout() {
-    await supabase.auth.signOut();
+  function logout() {
+    tokenStore.clear();
+    setUser(null);
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, initialized }}>
+    <AuthContext.Provider value={{ user, login, logout, initialized }}>
       {children}
     </AuthContext.Provider>
   );

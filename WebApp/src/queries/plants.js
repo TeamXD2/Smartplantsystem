@@ -1,123 +1,70 @@
-// All reads/writes for plant records go through this file, so components
-// never talk to Supabase directly - they just call a function with a
-// clear name. Row Level Security (defined in supabase/schema.sql) is what
-// actually enforces who can see or change what; these functions don't
-// need to check roles themselves.
-import { supabase } from '../supabaseClient';
+// Plant records, all through the backend API. The backend decides who may see or
+// change what (roles, External Botanist assignments, publication rules); these
+// functions only call it.
+import { api } from '../api';
 
-const PHOTO_BUCKET = 'plant-photos';
+// ---- Public catalog (no login). Published plants only: no photos, and GPS only
+// when an Officer set the location to "Public". Plants are identified by QR code.
 
-// Uploads a photo to Supabase Storage and returns its public URL.
-// Returns null if no file was given (photo is optional).
-async function uploadPhoto(file) {
-  if (!file) return null;
-
-  const path = `${Date.now()}-${file.name}`;
-  const { error } = await supabase.storage.from(PHOTO_BUCKET).upload(path, file);
-  if (error) throw error;
-
-  const { data } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path);
-  return data.publicUrl;
+export function fetchPublicPlants({ search, page, limit } = {}) {
+  return api('/api/public/plants', { auth: false, params: { search, page, limit } });
 }
 
-// Adds each plant's submitter name for display in tables.
-// This is two simple queries instead of one SQL join, because `plants`
-// has two foreign keys pointing at `profiles` (submitted_by and
-// reviewed_by), which makes a single embedded Supabase query ambiguous.
-async function attachSubmitterNames(plants) {
-  const ids = [...new Set(plants.map((p) => p.submitted_by))];
-  if (ids.length === 0) return plants;
-
-  const { data: profiles, error } = await supabase.from('profiles').select('id, name').in('id', ids);
-  if (error) throw error;
-
-  const nameById = Object.fromEntries(profiles.map((p) => [p.id, p.name]));
-  return plants.map((p) => ({ ...p, submitted_by_name: nameById[p.submitted_by] || 'Unknown' }));
+export function fetchPublicPlant(qrCode) {
+  return api(`/api/public/plants/qr/${encodeURIComponent(qrCode)}`, { auth: false });
 }
 
-// ---- Public species catalog (no login required) - approved records only ----
-// RLS also enforces this server-side; the .eq('status', 'approved') here
-// just avoids asking for rows we know we won't get back.
+// ---- Staff ----
 
-export async function fetchPublicPlants(search = '') {
-  let query = supabase.from('plants').select('*').eq('status', 'approved').order('common_name');
+// params: { search, publication_status, mine: 'true', page, limit }
+export function fetchPlants(params) {
+  return api('/api/plants', { params });
+}
 
-  if (search) {
-    query = query.or(
-      `scientific_name.ilike.%${search}%,common_name.ilike.%${search}%,family.ilike.%${search}%`
-    );
+export function fetchPlant(id) {
+  return api(`/api/plants/${id}`);
+}
+
+export function fetchPlantHistory(id) {
+  return api(`/api/plants/${id}/history`);
+}
+
+export function uploadPhoto(plantId, file) {
+  const form = new FormData();
+  form.append('photo', file);
+  return api(`/api/plants/${plantId}/photos`, { method: 'POST', form });
+}
+
+// Registers a plant, then uploads the photo (two requests in the API). If only
+// the photo fails the record still exists, so that's reported separately.
+// Returns { plant_id, qr_code, qr_code_image, photoError }.
+export async function registerPlant(fields, imageFile) {
+  const created = await api('/api/plants', { method: 'POST', body: fields });
+  let photoError = null;
+  if (imageFile) {
+    try {
+      await uploadPhoto(created.plant_id, imageFile);
+    } catch (err) {
+      photoError = err.message;
+    }
   }
-
-  const { data, error } = await query;
-  if (error) throw error;
-  return data;
+  return { ...created, photoError };
 }
 
-export async function fetchPublicPlant(id) {
-  const { data, error } = await supabase
-    .from('plants')
-    .select('*')
-    .eq('id', id)
-    .eq('status', 'approved')
-    .single();
-  if (error) throw error;
-  return data;
+// Direct edit: Internal Botanist, Conservation Officer, Admin.
+export function updatePlant(id, changes) {
+  return api(`/api/plants/${id}`, { method: 'PATCH', body: changes });
 }
 
-// ---- Signed-in views ----
-// Row Level Security decides what "my plants" actually means: a botanist
-// gets back only their own submissions, while a conservation officer or
-// admin gets every submission. The query itself is identical either way.
-
-export async function fetchMyPlants({ status, search } = {}) {
-  let query = supabase.from('plants').select('*').order('created_at', { ascending: false });
-
-  if (status) query = query.eq('status', status);
-  if (search) query = query.or(`scientific_name.ilike.%${search}%,common_name.ilike.%${search}%`);
-
-  const { data, error } = await query;
-  if (error) throw error;
-  return attachSubmitterNames(data);
+// Officer / Admin: publish or unpublish and choose how much location visitors see.
+export function setVisibility(id, { publication_status, location_visibility, general_location }) {
+  return api(`/api/plants/${id}/visibility`, {
+    method: 'PATCH',
+    body: { publication_status, location_visibility, general_location },
+  });
 }
 
-// Submits a new field record. RLS requires submitted_by to match the
-// signed-in user, so we always set it from the current session.
-export async function submitPlant(fields, imageFile) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const image_path = await uploadPhoto(imageFile);
-
-  const { error } = await supabase.from('plants').insert({ ...fields, image_path, submitted_by: user.id });
-  if (error) throw error;
-}
-
-// Edits a record's details. RLS only allows this if you're the submitter
-// and the record is still 'pending', or you're a conservation officer/admin.
-export async function updatePlant(id, fields, imageFile) {
-  const updates = { ...fields };
-  if (imageFile) updates.image_path = await uploadPhoto(imageFile);
-
-  const { error } = await supabase.from('plants').update(updates).eq('id', id);
-  if (error) throw error;
-}
-
-// Approves or rejects a submission. RLS restricts this to conservation
-// officers and admins.
-export async function reviewPlant(id, status, reviewNote) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { error } = await supabase
-    .from('plants')
-    .update({ status, review_note: reviewNote || null, reviewed_by: user.id })
-    .eq('id', id);
-  if (error) throw error;
-}
-
-export async function deletePlant(id) {
-  const { error } = await supabase.from('plants').delete().eq('id', id);
-  if (error) throw error;
+// Officer / Admin only. Botanists send a delete request instead (queries/requests.js).
+export function deletePlant(id) {
+  return api(`/api/plants/${id}`, { method: 'DELETE' });
 }

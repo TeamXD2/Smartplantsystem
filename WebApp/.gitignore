@@ -1,4 +1,4 @@
-# Dependencies
+# Dependencies (run `npm install` to get them)
 node_modules/
 
 # Build output
@@ -6,10 +6,11 @@ dist/
 dist-ssr/
 build/
 
-# Environment variables (Supabase keys, etc.)
-.env
-.env.local
-.env.*.local
+# Environment variables - everyone makes their own .env from .env.example
+# (.env.example is the safe template and stays in git)
+.env.*
+!.env.example
+*.local
 
 # Logs
 logs/
@@ -19,20 +20,25 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Package manager leftovers
+*.tgz
+.npm/
+.eslintcache
+
+# Test coverage
+coverage/
+
+# Vite cache
+.vite/
+
 # Editor / OS
 .vscode/*
 !.vscode/extensions.json
 .idea/
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-
-# Vite
-*.local
-
-# Coverage / cache
-coverage/
-.eslintcache

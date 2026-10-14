@@ -1,19 +1,17 @@
-// User account management for the admin panel. Row Level Security lets
-// conservation officers/admins read every profile, but only admins can
-// change one (see the `profiles_update_admin_only` policy in schema.sql).
-import { supabase } from '../supabaseClient';
+// Account management (Admin only; the backend enforces it).
+import { api } from '../api';
 
-export async function fetchUsers() {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, name, email, role, is_active, created_at')
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return data;
+export function fetchUsers() {
+  return api('/api/users');
 }
 
-// updates is a partial object, e.g. { role: 'admin' } or { is_active: false }.
-export async function updateUser(id, updates) {
-  const { error } = await supabase.from('profiles').update(updates).eq('id', id);
-  if (error) throw error;
+// updates: { is_active } and/or { role_name, botanist_type }
+export function updateUser(id, updates) {
+  return api(`/api/users/${id}`, { method: 'PATCH', body: updates });
+}
+
+// There is no public sign-up: an Admin creates every account.
+// account: { full_name, email, password, role_name, botanist_type }
+export function createUser(account) {
+  return api('/api/auth/register', { method: 'POST', body: account });
 }

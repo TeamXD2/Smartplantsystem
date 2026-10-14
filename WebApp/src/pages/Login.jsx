@@ -1,14 +1,8 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Leaf } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { checkAdminExists, claimFirstAdmin } from '../queries/setup';
-
-const DASHBOARD_PATH = {
-  botanist: '/botanist',
-  conservation_officer: '/officer',
-  admin: '/admin',
-};
+import { dashboardPath } from '../roles';
 
 export default function Login() {
   const { login } = useAuth();
@@ -17,31 +11,14 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [needsSetup, setNeedsSetup] = useState(false);
-
-  // Only used to show the banner below - the actual safety check happens
-  // fresh (via handleSubmit) at the moment someone logs in.
-  useEffect(() => {
-    checkAdminExists().then((exists) => setNeedsSetup(!exists)).catch(() => {});
-  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
     setBusy(true);
     try {
-      const user = await login(email, password);
-
-      // Covers the case where this person registered before an admin
-      // existed, but had to confirm their email first - so the very
-      // first successful login is when we can actually promote them.
-      if (user.role !== 'admin' && !(await checkAdminExists())) {
-        await claimFirstAdmin();
-        navigate('/admin');
-        return;
-      }
-
-      navigate(DASHBOARD_PATH[user.role] || '/');
+      const user = await login(email.trim(), password);
+      navigate(dashboardPath(user));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -59,26 +36,20 @@ export default function Login() {
       <div className="auth-form-side">
         <form onSubmit={handleSubmit} className="auth-form stack">
           <h2>Staff Login</h2>
-          {needsSetup && (
-            <div className="alert alert-warning">
-              No administrator account has been set up yet.{' '}
-              <Link to="/register">Create the admin account</Link>.
-            </div>
-          )}
           {error && <div className="alert alert-error">{error}</div>}
           <div className="field">
             <label>Email</label>
-            <input type="email" className="input" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input type="email" className="input" required autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div className="field">
             <label>Password</label>
-            <input type="password" className="input" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input type="password" className="input" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
           <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
             {busy ? 'Logging in…' : 'Log in'}
           </button>
-          <p style={{ textAlign: 'center', fontSize: '0.9rem' }}>
-            Botanist account? <Link to="/register">Register here</Link>
+          <p className="muted" style={{ textAlign: 'center', fontSize: '0.9rem' }}>
+            Accounts are created by an administrator. Ask yours if you need access.
           </p>
         </form>
       </div>

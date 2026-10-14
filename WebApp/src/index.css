@@ -12,7 +12,6 @@
   --green-800: #1c3d34;
   --green-700: #24523f;
   --green-600: #33684e;
-  --green-500: #4c8b5d;
   --green-100: #e2ebe2;
   --amber-600: #b9670f;
   --amber-500: #dd8a2e;
@@ -30,7 +29,6 @@
   /* Scale */
   --radius-sm: 6px;
   --radius: 10px;
-  --radius-lg: 16px;
   --shadow: 0 4px 16px rgba(22, 48, 42, 0.10);
   --shadow-sm: 0 1px 3px rgba(22, 48, 42, 0.10);
   --font: 'Barlow', 'Segoe UI', system-ui, sans-serif;
@@ -71,7 +69,6 @@ table { border-collapse: collapse; width: 100%; }
 /* ---- Layout ---- */
 .container { max-width: 1080px; margin: 0 auto; padding: 0 1.25rem; }
 .page { padding: 2.5rem 0; }
-.page-narrow { max-width: 460px; margin: 0 auto; padding: 3rem 1.25rem; }
 .stack { display: flex; flex-direction: column; gap: 1rem; }
 .row-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
 .grid { display: grid; gap: 1.5rem; }
@@ -190,10 +187,9 @@ table { border-collapse: collapse; width: 100%; }
 .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem 1.25rem; }
 .form-grid-3 { grid-template-columns: repeat(3, 1fr); }
 .form-grid .span-2 { grid-column: span 2; }
-.form-grid .span-3 { grid-column: span 3; }
 @media (max-width: 640px) {
   .form-grid, .form-grid-3 { grid-template-columns: 1fr; }
-  .form-grid .span-2, .form-grid .span-3 { grid-column: span 1; }
+  .form-grid .span-2 { grid-column: span 1; }
 }
 
 /* ---- Tags / status ---- */
@@ -211,7 +207,6 @@ table { border-collapse: collapse; width: 100%; }
 .tag-pending { background: var(--amber-100); color: var(--amber-600); }
 .tag-approved { background: var(--green-100); color: var(--green-700); }
 .tag-rejected { background: var(--rust-100); color: var(--rust-600); }
-.tag-role { background: var(--green-100); color: var(--green-800); text-transform: capitalize; }
 
 /* ---- Cards (specimen sheet) ---- */
 .specimen-card {
@@ -235,7 +230,6 @@ table { border-collapse: collapse; width: 100%; }
   font-size: 0.85rem;
   position: relative;
 }
-.specimen-photo img { width: 100%; height: 100%; object-fit: cover; }
 .specimen-id {
   position: absolute;
   top: 0.6rem;
@@ -275,6 +269,7 @@ table { border-collapse: collapse; width: 100%; }
 .data-table td { padding: 0.7rem 1rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tr:hover td { background: var(--green-100); }
+.muted { color: var(--ink-400); }
 .data-table .muted { color: var(--ink-400); font-size: 0.82rem; }
 .data-table .sci { font-style: italic; color: var(--ink-400); font-size: 0.82rem; }
 .coord { font-family: var(--mono); font-size: 0.85rem; color: var(--ink-600); }
@@ -353,3 +348,23 @@ table { border-collapse: collapse; width: 100%; }
 /* ---- Empty state ---- */
 .empty-state { text-align: center; padding: 2.5rem 1.5rem; color: var(--ink-400); }
 .empty-state p { color: var(--ink-400); margin: 0; }
+
+/* ---- Added when the web app moved onto the backend API ---- */
+.qr-result {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  margin-top: 1.25rem;
+}
+.qr-result img { background: #fff; padding: 6px; border-radius: 6px; }
+.changes-list { margin: 0; padding-left: 1.1rem; }
+.changes-list li { margin: 0.1rem 0; }
+.history-list { list-style: none; margin: 0; padding: 0; }
+.history-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.history-list li:last-child { border-bottom: 0; }

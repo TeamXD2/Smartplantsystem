@@ -1,65 +1,50 @@
-import { useEffect, useState } from 'react';
-import { fetchMyPlants, submitPlant } from '../queries/plants';
+import { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { isExternalBotanist } from '../roles';
+import { registerPlant } from '../queries/plants';
 import PlantForm from '../components/PlantForm';
-
-const TAG_CLASS = {
-  pending: 'tag tag-pending',
-  approved: 'tag tag-approved',
-  rejected: 'tag tag-rejected',
-};
+import PlantRecordsTable from '../components/PlantRecordsTable';
+import MyRequestsPanel from '../components/MyRequestsPanel';
 
 export default function BotanistDashboard() {
-  const [plants, setPlants] = useState([]);
-  const [error, setError] = useState('');
+  const { user } = useAuth();
+  const external = isExternalBotanist(user);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [tab, setTab] = useState('records');
 
-  async function load() {
-    try {
-      setPlants(await fetchMyPlants());
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function handleSubmit(fields, imageFile) {
-    await submitPlant(fields, imageFile);
-    load();
+  async function handleSubmit(payload, imageFile) {
+    const result = await registerPlant(payload, imageFile);
+    setRefreshKey((k) => k + 1);
+    return result;
   }
 
   return (
     <div className="container page">
       <h2>Submit a Field Observation</h2>
       <div className="panel" style={{ marginBottom: '2.5rem' }}>
-        <PlantForm onSubmit={handleSubmit} submitLabel="Submit for review" />
+        <PlantForm onSubmit={handleSubmit} submitLabel="Register plant" />
       </div>
 
-      <h3 style={{ marginBottom: '1rem' }}>My Submissions</h3>
-      {error && <div className="alert alert-error">{error}</div>}
-      <div className="table-wrap">
-        <table className="data-table">
-          <thead>
-            <tr><th>Name</th><th>Family</th><th>Status</th><th>Review note</th><th>Submitted</th></tr>
-          </thead>
-          <tbody>
-            {plants.map((p) => (
-              <tr key={p.id}>
-                <td>
-                  <div style={{ fontWeight: 600 }}>{p.common_name}</div>
-                  <div className="sci">{p.scientific_name}</div>
-                </td>
-                <td>{p.family}</td>
-                <td><span className={TAG_CLASS[p.status]}>{p.status}</span></td>
-                <td className="muted">{p.review_note || '—'}</td>
-                <td className="muted">{new Date(p.created_at).toLocaleDateString()}</td>
-              </tr>
-            ))}
-            {plants.length === 0 && (
-              <tr className="empty-row"><td colSpan="5">You haven't submitted any records yet.</td></tr>
-            )}
-          </tbody>
-        </table>
+      <div className="tabs">
+        <button className={`tab ${tab === 'records' ? 'active' : ''}`} onClick={() => setTab('records')}>
+          My Records
+        </button>
+        <button className={`tab ${tab === 'requests' ? 'active' : ''}`} onClick={() => setTab('requests')}>
+          My Requests
+        </button>
       </div>
+
+      {external && (
+        <div className="alert alert-warning">
+          As an External Botanist you can register plants and edit them only by sending requests that an Officer reviews.
+        </div>
+      )}
+
+      {tab === 'records' ? (
+        <PlantRecordsTable variant="botanist" refreshKey={refreshKey} />
+      ) : (
+        <MyRequestsPanel refreshKey={refreshKey} />
+      )}
     </div>
   );
 }

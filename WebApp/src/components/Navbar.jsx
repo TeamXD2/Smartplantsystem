@@ -1,12 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { Leaf, User } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-
-const DASHBOARD_PATH = {
-  botanist: '/botanist',
-  conservation_officer: '/officer',
-  admin: '/admin',
-};
+import { dashboardPath } from '../roles';
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -22,9 +17,10 @@ export default function Navbar() {
           <Link to="/species">Species Catalog</Link>
           {user ? (
             <>
-              <Link to={DASHBOARD_PATH[user.role]}>My Dashboard</Link>
+              <Link to={dashboardPath(user)}>My Dashboard</Link>
               <span className="navbar-user">
-                <User size={14} /> {user.name} &middot; {user.role.replace('_', ' ')}
+                <User size={14} /> {user.full_name} &middot; {user.role_name}
+                {user.botanist_type ? ` (${user.botanist_type})` : ''}
               </span>
               <button
                 className="btn btn-outline-light btn-sm"
@@ -37,10 +33,7 @@ export default function Navbar() {
               </button>
             </>
           ) : (
-            <>
-              <Link to="/login">Staff Login</Link>
-              <Link className="btn btn-primary btn-sm" to="/register">Register</Link>
-            </>
+            <Link className="btn btn-primary btn-sm" to="/login">Staff Login</Link>
           )}
         </div>
       </div>

@@ -1,16 +1,42 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Search, Leaf } from 'lucide-react';
 import { fetchPublicPlants } from '../queries/plants';
+import { useDebounced } from '../hooks';
+import Pager from '../components/Pager';
 
+const LIMIT = 12;
+
+// The public catalog: published plants only, as served by GET /api/public/plants.
+// By design the public API returns no photos and no GPS in the list.
 export default function SpeciesCatalog() {
-  const [plants, setPlants] = useState([]);
+  const [data, setData] = useState({ plants: [], total: 0 });
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounced(search);
+  const [page, setPage] = useState(1);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchPublicPlants(search).then(setPlants).catch((err) => setError(err.message));
-  }, [search]);
+    setPage(1);
+  }, [debouncedSearch]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchPublicPlants({ search: debouncedSearch, page, limit: LIMIT })
+      .then((result) => {
+        if (!cancelled) {
+          setData(result);
+          setError('');
+        }
+      })
+      .catch((err) => !cancelled && setError(err.message))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSearch, page]);
 
   return (
     <div className="container page">
@@ -32,25 +58,32 @@ export default function SpeciesCatalog() {
       {error && <div className="alert alert-error">{error}</div>}
 
       <div className="grid grid-3">
-        {plants.map((p) => (
-          <Link to={`/species/${p.id}`} key={p.id} className="specimen-card" style={{ textDecoration: 'none', color: 'inherit' }}>
+        {data.plants.map((p) => (
+          <Link to={`/species/${encodeURIComponent(p.qr_code)}`} key={p.qr_code} className="specimen-card" style={{ textDecoration: 'none', color: 'inherit' }}>
             <div className="specimen-photo">
-              {p.image_path ? <img src={p.image_path} alt={p.common_name} /> : <span>No photo</span>}
-              <span className="specimen-id">SP-{String(p.id).padStart(3, '0')}</span>
+              <Leaf size={36} color="var(--ink-400)" />
+              <span className="specimen-id">{p.qr_code}</span>
             </div>
             <div className="specimen-body">
-              <div className="specimen-common">{p.common_name}</div>
-              <div className="specimen-sci">{p.scientific_name}</div>
+              <div className="specimen-common">{p.common_name || p.scientific_name}</div>
+              {p.common_name && <div className="specimen-sci">{p.scientific_name}</div>}
+              {(p.family || p.general_location) && (
+                <div className="muted" style={{ fontSize: '0.85rem', marginTop: 4 }}>
+                  {[p.family, p.general_location].filter(Boolean).join(' · ')}
+                </div>
+              )}
             </div>
           </Link>
         ))}
       </div>
 
-      {plants.length === 0 && !error && (
+      {!loading && data.plants.length === 0 && !error && (
         <div className="empty-state">
-          <p>No approved species records yet — check back once field submissions have been reviewed.</p>
+          <p>No published species match — check back once field records have been reviewed and published.</p>
         </div>
       )}
+
+      <Pager page={page} limit={LIMIT} total={data.total} onChange={setPage} />
     </div>
   );
 }
