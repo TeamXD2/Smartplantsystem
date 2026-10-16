@@ -2,18 +2,23 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 const { logAction } = require('../utils/auditLog');
+const { validateNewAccount } = require('../utils/validateAccount');
 require('dotenv').config();
 
-// POST /api/auth/register
-// Note: in practice this should usually be called by an Admin creating
-// accounts for Botanists/Officers, not public self-signup. For Sprint 1
-// it's left open so the team can create test accounts easily.
+// Compared against when the email doesn't exist, so "unknown email" and "wrong
+// password" take about the same time and can't be told apart by timing.
+const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 10);
+
+// POST /api/auth/register  (Admin only - see routes/authRoutes.js)
+// There is no public self-signup: an Admin creates every account. The very
+// first Admin is created on the web app's one-time setup page (see setupController.js).
 async function register(req, res) {
   try {
     const { full_name, email, password, role_name, botanist_type } = req.body;
 
-    if (!full_name || !email || !password || !role_name) {
-      return res.status(400).json({ error: 'full_name, email, password, and role_name are required' });
+    const invalid = validateNewAccount(req.body);
+    if (invalid) {
+      return res.status(400).json({ error: invalid });
     }
 
     // Look up role_id from role_name
@@ -24,7 +29,7 @@ async function register(req, res) {
     const role_id = roleRows[0].role_id;
 
     // Check email not already used (case-insensitive, matching the unique index)
-    const { rows: existing } = await pool.query('SELECT user_id FROM users WHERE LOWER(email) = LOWER($1)', [email]);
+    const { rows: existing } = await pool.query('SELECT user_id FROM users WHERE LOWER(email) = LOWER($1)', [email.trim()]);
     if (existing.length > 0) {
       return res.status(409).json({ error: 'Email already registered' });
     }
@@ -35,11 +40,11 @@ async function register(req, res) {
       `INSERT INTO users (full_name, email, password_hash, role_id, botanist_type)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING user_id`,
-      [full_name, email, password_hash, role_id, botanist_type || null]
+      [full_name.trim(), email.trim(), password_hash, role_id, botanist_type || null]
     );
 
     await logAction({
-      user_id: req.user ? req.user.user_id : null, // null if this is public self-registration
+      user_id: req.user.user_id,
       action: 'CREATE_USER',
       target_table: 'users',
       target_id: created.user_id,
@@ -65,6 +70,9 @@ async function login(req, res) {
     if (!email || !password) {
       return res.status(400).json({ error: 'email and password are required' });
     }
+    if (typeof email !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ error: 'email and password must be text' });
+    }
 
     const { rows } = await pool.query(
       `SELECT u.user_id, u.full_name, u.email, u.password_hash, u.is_active,
@@ -75,19 +83,17 @@ async function login(req, res) {
       [email]
     );
 
-    if (rows.length === 0) {
+    const user = rows[0];
+    const passwordMatches = await bcrypt.compare(password, user ? user.password_hash : DUMMY_HASH);
+
+    if (!user || !passwordMatches) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const user = rows[0];
-
+    // Checked only after the password, so a deactivated account isn't revealed
+    // to someone who doesn't know the password.
     if (!user.is_active) {
       return res.status(403).json({ error: 'This account has been deactivated' });
-    }
-
-    const passwordMatches = await bcrypt.compare(password, user.password_hash);
-    if (!passwordMatches) {
-      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     const tokenPayload = {
@@ -98,6 +104,7 @@ async function login(req, res) {
     };
 
     const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
+      algorithm: 'HS256',
       expiresIn: process.env.JWT_EXPIRES_IN || '7d'
     });
 
@@ -119,4 +126,26 @@ async function login(req, res) {
   }
 }
 
-module.exports = { register, login };
+// GET /api/auth/me  (any logged-in user)
+// Lets an app that kept a token (e.g. after a page reload) check it is still
+// valid and get the current name/role. The role is read fresh from the database.
+async function me(req, res) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT u.user_id, u.full_name, u.email, u.botanist_type, r.role_name
+       FROM users u
+       JOIN roles r ON u.role_id = r.role_id
+       WHERE u.user_id = $1`,
+      [req.user.user_id]
+    );
+    if (rows.length === 0) {
+      return res.status(401).json({ error: 'Account is no longer active' });
+    }
+    res.json({ user: rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error while loading your account' });
+  }
+}
+
+module.exports = { register, login, me };

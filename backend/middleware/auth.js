@@ -13,7 +13,8 @@ async function authenticate(req, res, next) {
 
   let decoded;
   try {
-    decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
+    // Only the algorithm we sign with is accepted (rules out "alg" tricks).
+    decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET, { algorithms: ['HS256'] });
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }

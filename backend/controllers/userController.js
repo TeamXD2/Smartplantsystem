@@ -55,6 +55,32 @@ async function updateUser(req, res) {
       updates.botanist_type = botanist_type;
     }
 
+    // A Botanist always needs a type (without one they'd get Internal rights), and
+    // other roles never have one - checked against what the account will look like after the change.
+    if (role_name !== undefined || botanist_type !== undefined) {
+      const { rows: currentRows } = await pool.query(
+        `SELECT r.role_name, u.botanist_type
+         FROM users u JOIN roles r ON u.role_id = r.role_id
+         WHERE u.user_id = $1`,
+        [id]
+      );
+      if (currentRows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const finalRole = role_name !== undefined ? role_name : currentRows[0].role_name;
+      const finalType = botanist_type !== undefined ? botanist_type : currentRows[0].botanist_type;
+
+      if (finalRole === 'Botanist' && !finalType) {
+        return res.status(400).json({ error: "botanist_type ('Internal' or 'External') is required for Botanists" });
+      }
+      if (finalRole !== 'Botanist') {
+        if (botanist_type) {
+          return res.status(400).json({ error: 'botanist_type only applies to Botanists' });
+        }
+        updates.botanist_type = null; // moving away from Botanist clears the type
+      }
+    }
+
     const fields = Object.keys(updates);
     if (fields.length === 0) {
       return res.status(400).json({ error: 'Nothing to update' });

@@ -2,10 +2,21 @@
 node_modules/
 
 # Secrets - everyone makes their own .env from .env.example
-.env
+# (.env.example is the safe template and stays in git)
+.env.*
+!.env.example
+
+# Database TLS certificate (DB_SSL_CA) and any keys. Each person downloads
+# their own from the Supabase Dashboard, and keys must never be committed.
+*.crt
+*.pem
+*.key
+*.p12
+*.pfx
 
 # Files Postman creates when this folder is connected in Local mode
-# (the shareable collection is postman/Biodiversity-Sprint1.postman_collection.json)
+# (the shareable collection is postman/Biodiversity-Sprint1.postman_collection.json
+# and the sample image postman/sample-leaf.png, which both stay in git)
 .postman/
 postman/collections/
 postman/documents/
@@ -15,6 +26,28 @@ postman/globals/
 postman/mocks/
 postman/specs/
 
-# Logs / OS
+# Logs
+logs/
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Package manager leftovers
+*.tgz
+.npm/
+.eslintcache
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
 .DS_Store
+Thumbs.db
+*.swp
+*.swo

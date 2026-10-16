@@ -2,6 +2,8 @@ const crypto = require('crypto');
 const pool = require('../config/db');
 const { supabase, PHOTO_BUCKET } = require('../config/supabase');
 const { MIME_TO_EXT } = require('../middleware/upload');
+const { detectImageType } = require('../utils/imageType');
+const { removePhotoFiles } = require('../utils/photoStorage');
 const { generateQrCodeString, generateQrCodeImage } = require('../utils/qrcode');
 const { logAction } = require('../utils/auditLog');
 const { validatePlantFields } = require('../utils/validatePlant');
@@ -305,13 +307,25 @@ async function updatePlant(req, res) {
   }
 }
 
+// Most photos one plant can have, so a single account can't fill the bucket.
+const MAX_PHOTOS_PER_PLANT = 20;
+
 // POST /api/plants/:id/photos
+// The file's real type is read from its first bytes (the type the client
+// claims is not trusted), and that real type decides the stored extension and
+// content type. The image data itself is stored untouched: EXIF metadata,
+// including GPS, is intentionally kept.
 async function uploadPlantPhoto(req, res) {
   try {
     const { id } = req.params;
 
     if (!req.file) {
       return res.status(400).json({ error: 'No photo file uploaded' });
+    }
+
+    const realType = detectImageType(req.file.buffer);
+    if (!realType) {
+      return res.status(400).json({ error: 'The file is not a valid JPEG, PNG or WebP image' });
     }
 
     const { rows: plantRows } = await pool.query('SELECT plant_id FROM plants WHERE plant_id = $1', [id]);
@@ -323,11 +337,16 @@ async function uploadPlantPhoto(req, res) {
       return res.status(403).json({ error: 'You are not assigned to this plant' });
     }
 
+    const { rows: [{ count }] } = await pool.query('SELECT COUNT(*) AS count FROM plant_photos WHERE plant_id = $1', [id]);
+    if (Number(count) >= MAX_PHOTOS_PER_PLANT) {
+      return res.status(409).json({ error: `A plant can have at most ${MAX_PHOTOS_PER_PLANT} photos` });
+    }
+
     // Upload to Supabase Storage as plants/<id>/<time>-<random>.<ext>
-    const storagePath = `plants/${id}/${Date.now()}-${crypto.randomBytes(8).toString('hex')}${MIME_TO_EXT[req.file.mimetype]}`;
+    const storagePath = `plants/${id}/${Date.now()}-${crypto.randomBytes(8).toString('hex')}${MIME_TO_EXT[realType]}`;
     const { error: uploadError } = await supabase.storage
       .from(PHOTO_BUCKET)
-      .upload(storagePath, req.file.buffer, { contentType: req.file.mimetype });
+      .upload(storagePath, req.file.buffer, { contentType: realType });
     if (uploadError) {
       console.error('Supabase Storage upload failed:', uploadError);
       return res.status(502).json({ error: 'Could not store the photo, please try again' });
@@ -410,6 +429,9 @@ function buildHistorySummary(log) {
     case 'REJECTED_REQUEST':
       return `${who} rejected a request`;
 
+    case 'DELETE_PLANT':
+      return `${who} deleted this plant`;
+
     case 'UPDATE_VISIBILITY':
       return `${who} changed public visibility settings`;
 
@@ -469,6 +491,10 @@ async function updateVisibility(req, res) {
     if (location_visibility !== undefined && !['Public', 'Approximate', 'Hidden'].includes(location_visibility)) {
       return res.status(400).json({ error: "location_visibility must be 'Public', 'Approximate' or 'Hidden'" });
     }
+    if (general_location !== undefined && general_location !== null &&
+        (typeof general_location !== 'string' || general_location.length > 150)) {
+      return res.status(400).json({ error: 'general_location must be text of at most 150 characters' });
+    }
     // The schema defaults location_visibility to 'Public', so publishing without
     // an explicit choice would expose exact GPS. Force the Officer to decide.
     if (publication_status === 'Published' && location_visibility === undefined) {
@@ -506,6 +532,54 @@ async function updateVisibility(req, res) {
   }
 }
 
+// DELETE /api/plants/:id  (Conservation Officer / Admin)
+// Direct delete, no request needed. The full record is kept in the audit log
+// and the photo files are removed from Storage. Botanists can't call this:
+// they ask for a deletion via POST /api/requests instead.
+async function deletePlant(req, res) {
+  const { id } = req.params;
+  let connection;
+  let photoUrls = [];
+  let deleted;
+
+  try {
+    connection = await pool.connect();
+    await connection.query('BEGIN');
+
+    const { rows } = await connection.query('SELECT * FROM plants WHERE plant_id = $1 FOR UPDATE', [id]);
+    if (rows.length === 0) {
+      await connection.query('ROLLBACK');
+      return res.status(404).json({ error: 'Plant not found' });
+    }
+    deleted = rows[0];
+
+    const { rows: photos } = await connection.query('SELECT photo_url FROM plant_photos WHERE plant_id = $1', [id]);
+    photoUrls = photos.map((p) => p.photo_url);
+
+    // plant_photos and botanist_assignments go with it (ON DELETE CASCADE);
+    // change requests keep their snapshot and just lose the plant_id.
+    await connection.query('DELETE FROM plants WHERE plant_id = $1', [id]);
+    await connection.query('COMMIT');
+  } catch (err) {
+    if (connection) await connection.query('ROLLBACK').catch(() => {});
+    console.error(err);
+    return res.status(500).json({ error: 'Server error while deleting plant' });
+  } finally {
+    if (connection) connection.release();
+  }
+
+  await logAction({
+    user_id: req.user.user_id,
+    action: 'DELETE_PLANT',
+    target_table: 'plants',
+    target_id: id,
+    details: { deleted_record: deleted }
+  });
+  await removePhotoFiles(photoUrls);
+
+  res.json({ message: 'Plant deleted' });
+}
+
 module.exports = {
   createPlant,
   listPlants,
@@ -515,6 +589,7 @@ module.exports = {
   getPlantHistory,
   updatePlant,
   updateVisibility,
+  deletePlant,
   canSeeFullDetail,
   parseJson
 };

@@ -4,6 +4,9 @@ const { canSeeFullDetail, parseJson } = require('./plantController');
 const { isValidId } = require('../middleware/validateId');
 const { validatePlantFields } = require('../utils/validatePlant');
 const { pickEditableFields, applyPlantChanges } = require('../utils/plantChanges');
+const { removePhotoFiles } = require('../utils/photoStorage');
+
+const REQUEST_STATUSES = ['Pending', 'Approved', 'Rejected'];
 
 // POST /api/requests
 // Botanist submits an EDIT or DELETE request for an existing plant record.
@@ -90,6 +93,9 @@ async function submitRequest(req, res) {
 async function listRequests(req, res) {
   try {
     const { status } = req.query;
+    if (status !== undefined && !REQUEST_STATUSES.includes(status)) {
+      return res.status(400).json({ error: "status must be 'Pending', 'Approved' or 'Rejected'" });
+    }
 
     let query = `
       SELECT r.*, u.full_name AS requested_by_name
@@ -119,6 +125,9 @@ async function listRequests(req, res) {
 async function listMyRequests(req, res) {
   try {
     const { status } = req.query;
+    if (status !== undefined && !REQUEST_STATUSES.includes(status)) {
+      return res.status(400).json({ error: "status must be 'Pending', 'Approved' or 'Rejected'" });
+    }
 
     let query = `
       SELECT r.request_id, r.plant_id, r.plant_qr_code_snapshot, r.plant_scientific_name_snapshot,
@@ -154,6 +163,10 @@ async function reviewRequest(req, res) {
   if (!['Approved', 'Rejected'].includes(decision)) {
     return res.status(400).json({ error: "decision must be 'Approved' or 'Rejected'" });
   }
+  if (review_comment !== undefined && review_comment !== null &&
+      (typeof review_comment !== 'string' || review_comment.length > 5000)) {
+    return res.status(400).json({ error: 'review_comment must be text of at most 5000 characters' });
+  }
 
   let connection;
   try {
@@ -178,6 +191,7 @@ async function reviewRequest(req, res) {
 
     // Collected here so we can write a detailed audit log AFTER commit.
     let auditDetails = { request_id: id, review_comment: review_comment || null };
+    let photoUrlsToRemove = [];
 
     if (decision === 'Approved') {
       if (request.request_type === 'EDIT') {
@@ -201,6 +215,12 @@ async function reviewRequest(req, res) {
         }
         auditDetails.deleted_record = beforeRows[0];
 
+        const { rows: photoRows } = await connection.query(
+          'SELECT photo_url FROM plant_photos WHERE plant_id = $1',
+          [request.plant_id]
+        );
+        photoUrlsToRemove = photoRows.map((p) => p.photo_url);
+
         await connection.query('DELETE FROM plants WHERE plant_id = $1', [request.plant_id]);
       }
     }
@@ -221,6 +241,7 @@ async function reviewRequest(req, res) {
       target_id: request.plant_id,
       details: auditDetails
     });
+    await removePhotoFiles(photoUrlsToRemove);
 
     res.json({ message: `Request ${decision.toLowerCase()}`, request_id: id });
   } catch (err) {

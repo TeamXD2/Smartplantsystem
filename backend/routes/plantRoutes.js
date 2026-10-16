@@ -13,7 +13,8 @@ const {
   uploadPlantPhoto,
   getPlantHistory,
   updatePlant,
-  updateVisibility
+  updateVisibility,
+  deletePlant
 } = require('../controllers/plantController');
 
 // All routes here require login (Botanist/Officer/Admin)
@@ -30,5 +31,6 @@ router.patch('/:id', updatePlant);                       // Direct edit (Externa
 router.get('/:id/history', getPlantHistory);              // Audit trail for this plant
 router.post('/:id/photos', upload.single('photo'), uploadPlantPhoto); // Attach photo
 router.patch('/:id/visibility', requireRole('Conservation Officer', 'Admin'), updateVisibility); // Publish / location visibility
+router.delete('/:id', requireRole('Conservation Officer', 'Admin'), deletePlant);                 // Direct delete (Botanists use POST /api/requests)
 
 module.exports = router;
