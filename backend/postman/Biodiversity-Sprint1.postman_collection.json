@@ -2028,6 +2028,11 @@
                   "  pm.expect(json).to.not.have.property('longitude');",
                   "  pm.expect(json).to.not.have.property('registered_by');",
                   "});",
+                  "pm.test('Shows the plant photos', () => {",
+                  "  const photos = pm.response.json().photos;",
+                  "  pm.expect(photos).to.have.lengthOf.at.least(1);",
+                  "  pm.expect(photos[0].photo_url).to.include('/storage/v1/object/public/');",
+                  "});",
                   "pm.collectionVariables.set('publicView', JSON.stringify(pm.response.json()));"
                 ]
               }
@@ -2068,10 +2073,9 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Visible once published', () => pm.response.to.have.status(200));",
-                  "pm.test('Same fields and values as the Park Visitor view', () => {",
-                  "  const { plant_id, photos, full_detail, ...rest } = pm.response.json();",
+                  "pm.test('Same fields, values and photos as the Park Visitor view', () => {",
+                  "  const { plant_id, full_detail, ...rest } = pm.response.json();",
                   "  pm.expect(full_detail).to.eql(false);",
-                  "  pm.expect(photos).to.eql([]);",
                   "  pm.expect(rest).to.eql(JSON.parse(pm.collectionVariables.get('publicView')));",
                   "});"
                 ]
@@ -2118,11 +2122,12 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('List returned', () => pm.response.to.have.status(200));",
-                  "pm.test('Listed with catalog fields only', () => {",
+                  "pm.test('Listed with catalog fields and cover photo only', () => {",
                   "  const plant = pm.response.json().plants.find((p) => String(p.plant_id) === String(pm.collectionVariables.get('plantId')));",
                   "  pm.expect(plant.full_detail).to.eql(false);",
                   "  pm.expect(plant.general_location).to.eql('Niah National Park');",
-                  "  ['latitude', 'cover_photo_url', 'registered_by_name', 'publication_status'].forEach((k) => pm.expect(plant).to.not.have.property(k));",
+                  "  pm.expect(plant.cover_photo_url).to.be.a('string');",
+                  "  ['latitude', 'registered_by_name', 'publication_status'].forEach((k) => pm.expect(plant).to.not.have.property(k));",
                   "});"
                 ]
               }
@@ -2130,7 +2135,7 @@
           ]
         },
         {
-          "name": "Species catalog shows published plant, no GPS",
+          "name": "Species catalog shows published plant with cover photo, no GPS",
           "request": {
             "method": "GET",
             "header": [],
@@ -2173,6 +2178,7 @@
                   "  pm.expect(plant).to.not.have.property('latitude');",
                   "  pm.expect(plant).to.not.have.property('longitude');",
                   "  pm.expect(plant).to.not.have.property('plant_id');",
+                  "  pm.expect(plant.cover_photo_url).to.be.a('string');",
                   "});"
                 ]
               }
