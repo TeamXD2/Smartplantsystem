@@ -12,7 +12,7 @@ const PUBLIC_FIELDS = [
 ];
 
 // Fields shown in the public catalog list (location follows the same rules as
-// the full view; no photos).
+// the full view).
 const PUBLIC_LIST_FIELDS = [
   'qr_code', 'common_name', 'scientific_name', 'family', 'genus', 'species', 'conservation_status'
 ];
@@ -28,8 +28,10 @@ function publicGeneralLocation(plant) {
 }
 
 // Full public view of one published plant (a plants row in, safe object out).
-// Callers must check isPublished() first.
-function buildPublicView(plant) {
+// photos are its plant_photos rows. Callers must check isPublished() first.
+// Photos are shown as uploaded, so their EXIF metadata (which can include GPS)
+// is not removed yet - planned for Sprint 2.
+function buildPublicView(plant, photos = []) {
   const view = {};
   PUBLIC_FIELDS.forEach((field) => { view[field] = plant[field]; });
 
@@ -42,11 +44,13 @@ function buildPublicView(plant) {
   if (generalLocation !== undefined) {
     view.general_location = generalLocation; // e.g. "Bakor Forest Area"
   }
+  view.photos = photos.map(({ photo_id, photo_url }) => ({ photo_id, photo_url }));
   return view;
 }
 
 // One row of the public catalog list. Coordinates are included only when the
-// Officer chose Public, exactly as on the plant's own page.
+// Officer chose Public, exactly as on the plant's own page. The row needs a
+// cover_photo_url column (see COVER_PHOTO_SQL).
 function buildPublicListItem(plant) {
   const item = {};
   PUBLIC_LIST_FIELDS.forEach((field) => { item[field] = plant[field]; });
@@ -55,7 +59,12 @@ function buildPublicListItem(plant) {
     item.longitude = plant.longitude;
   }
   item.general_location = publicGeneralLocation(plant) ?? null;
+  item.cover_photo_url = plant.cover_photo_url ?? null;
   return item;
 }
 
-module.exports = { isPublished, buildPublicView, buildPublicListItem };
+// SQL for a plant's first photo (the plants table must be aliased "p").
+const COVER_PHOTO_SQL = `(SELECT ph.photo_url FROM plant_photos ph WHERE ph.plant_id = p.plant_id
+   ORDER BY ph.uploaded_at, ph.photo_id LIMIT 1)`;
+
+module.exports = { isPublished, buildPublicView, buildPublicListItem, COVER_PHOTO_SQL };

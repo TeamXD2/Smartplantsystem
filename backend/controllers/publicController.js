@@ -1,13 +1,12 @@
 const pool = require('../config/db');
 const { parsePaging, likePattern } = require('../utils/listQuery');
-const { isPublished, buildPublicView, buildPublicListItem } = require('../utils/publicView');
+const { isPublished, buildPublicView, buildPublicListItem, COVER_PHOTO_SQL } = require('../utils/publicView');
 
 // GET /api/public/plants?search=&page=&limit=
 // No authentication - the public species catalog. Published plants only.
 // Location follows the Officer's choice, as on the plant's own page: exact
 // GPS for Public, the area name for Public and Approximate, nothing for
-// Hidden. Photos are left out, since uploaded photos can carry GPS in their
-// metadata.
+// Hidden. Each plant has its first photo as cover_photo_url.
 // Open a plant with GET /api/public/plants/qr/:qr_code for the full view.
 async function listPublicPlants(req, res) {
   try {
@@ -25,11 +24,12 @@ async function listPublicPlants(req, res) {
     params.push(paging.limit, paging.offset);
 
     const { rows } = await pool.query(
-      `SELECT qr_code, common_name, scientific_name, family, genus, species, conservation_status,
-              location_visibility, general_location, latitude, longitude, COUNT(*) OVER () AS total
-       FROM plants
-       WHERE publication_status = 'Published' ${searchCondition}
-       ORDER BY COALESCE(common_name, scientific_name), plant_id
+      `SELECT p.qr_code, p.common_name, p.scientific_name, p.family, p.genus, p.species, p.conservation_status,
+              p.location_visibility, p.general_location, p.latitude, p.longitude,
+              ${COVER_PHOTO_SQL} AS cover_photo_url, COUNT(*) OVER () AS total
+       FROM plants p
+       WHERE p.publication_status = 'Published' ${searchCondition}
+       ORDER BY COALESCE(p.common_name, p.scientific_name), p.plant_id
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params
     );
@@ -65,7 +65,11 @@ async function getPublicPlantByQrCode(req, res) {
       return res.status(404).json({ error: 'This plant record is not yet published' });
     }
 
-    res.json(buildPublicView(plant));
+    const { rows: photos } = await pool.query(
+      'SELECT photo_id, photo_url FROM plant_photos WHERE plant_id = $1 ORDER BY uploaded_at, photo_id',
+      [plant.plant_id]
+    );
+    res.json(buildPublicView(plant, photos));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error while looking up QR code' });

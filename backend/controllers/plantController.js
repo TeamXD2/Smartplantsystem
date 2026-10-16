@@ -9,7 +9,7 @@ const { logAction } = require('../utils/auditLog');
 const { validatePlantFields } = require('../utils/validatePlant');
 const { pickEditableFields, applyPlantChanges } = require('../utils/plantChanges');
 const { parsePaging, likePattern } = require('../utils/listQuery');
-const { isPublished, buildPublicView, buildPublicListItem } = require('../utils/publicView');
+const { isPublished, buildPublicView, buildPublicListItem, COVER_PHOTO_SQL } = require('../utils/publicView');
 
 // pg returns JSON/JSONB columns already parsed, TEXT columns as strings.
 function parseJson(value) {
@@ -32,13 +32,22 @@ async function canSeeFullDetail(user, plant_id) {
 
 // What an External Botanist sees of a plant they aren't assigned to:
 // exactly what a Park Visitor sees (published plants only, location as the
-// Officer allowed, no photos). Returns null for unpublished plants, which
+// Officer allowed, with photos). Returns null for unpublished plants, which
 // the caller answers with a plain 404 so it doesn't reveal the plant exists.
-function restrictedView(plant) {
+function restrictedView(plant, photos) {
   if (!isPublished(plant)) {
     return null;
   }
-  return { plant_id: plant.plant_id, ...buildPublicView(plant), photos: [], full_detail: false };
+  return { plant_id: plant.plant_id, ...buildPublicView(plant, photos), full_detail: false };
+}
+
+// A plant's photos, oldest first.
+async function getPhotos(plantId) {
+  const { rows } = await pool.query(
+    'SELECT photo_id, photo_url, uploaded_at FROM plant_photos WHERE plant_id = $1 ORDER BY uploaded_at, photo_id',
+    [plantId]
+  );
+  return rows;
 }
 
 // POST /api/plants
@@ -174,8 +183,7 @@ async function listPlants(req, res) {
               p.conservation_status, p.publication_status, p.location_visibility, p.general_location,
               p.latitude, p.longitude,
               p.registered_by, u.full_name AS registered_by_name, p.created_at, p.updated_at,
-              (SELECT ph.photo_url FROM plant_photos ph WHERE ph.plant_id = p.plant_id
-               ORDER BY ph.uploaded_at, ph.photo_id LIMIT 1) AS cover_photo_url,
+              ${COVER_PHOTO_SQL} AS cover_photo_url,
               (ba.assignment_id IS NOT NULL) AS assigned_to_me,
               COUNT(*) OVER () AS total
        FROM plants p
@@ -216,16 +224,12 @@ async function getPlantById(req, res) {
     }
 
     const plant = rows[0];
+    const photos = await getPhotos(id);
 
     if (!(await canSeeFullDetail(req.user, id))) {
-      const view = restrictedView(plant);
+      const view = restrictedView(plant, photos);
       return view ? res.json(view) : res.status(404).json({ error: 'Plant not found' });
     }
-
-    const { rows: photos } = await pool.query(
-      'SELECT photo_id, photo_url, uploaded_at FROM plant_photos WHERE plant_id = $1 ORDER BY uploaded_at',
-      [id]
-    );
 
     res.json({ ...plant, photos, full_detail: true });
   } catch (err) {
@@ -245,12 +249,13 @@ async function getPlantByQrCode(req, res) {
     }
 
     const plant = rows[0];
+    const photos = await getPhotos(plant.plant_id);
     if (!(await canSeeFullDetail(req.user, plant.plant_id))) {
-      const view = restrictedView(plant);
+      const view = restrictedView(plant, photos);
       return view ? res.json(view) : res.status(404).json({ error: 'No plant found for this QR code' });
     }
 
-    res.json({ ...plant, full_detail: true });
+    res.json({ ...plant, photos, full_detail: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error while looking up QR code' });

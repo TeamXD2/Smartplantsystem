@@ -112,7 +112,7 @@ All other accounts are created by an administrator in the web app, under User Ac
 
 ### Testing with Postman
 
-Import `backend/postman/Biodiversity-Sprint1.postman_collection.json`. In the collection's Variables tab, set `adminEmail` and `adminPassword`. In the Upload plant photo request, open Body and pick `backend/postman/sample-leaf.png`. Then run the whole collection. All 66 checks should pass. Each run adds test users (`...@test.com`) and plants to the shared database, so run it only when needed.
+Import `backend/postman/Biodiversity-Sprint1.postman_collection.json`. In the collection's Variables tab, set `adminEmail` and `adminPassword`. In the Upload plant photo request, open Body and pick `backend/postman/sample-leaf.png`. Then run the whole collection. All 67 checks should pass. Each run adds test users (`...@test.com`) and plants to the shared database, so run it only when needed.
 
 ## Configuration
 
@@ -159,7 +159,7 @@ There are three roles. Botanists are either Internal or External. Park visitors 
 | Create, change and deactivate accounts | No | No | No | No | Yes |
 
 1. An external botanist is assigned automatically to the plants they register.
-2. For plants they are not assigned to, an external botanist sees exactly what a park visitor sees: nothing until the plant is published, then the public fields only and no photos.
+2. For plants they are not assigned to, an external botanist sees exactly what a park visitor sees: nothing until the plant is published, then the public fields and the photos.
 
 A botanist always has a type, `Internal` or `External`. The other roles have none. There is no public sign-up for now.
 
@@ -190,13 +190,13 @@ Internal botanists, officers, admins and assigned external botanists see every f
 - `Approximate` adds `general_location` only.
 - `Hidden` adds no location.
 
-The public catalog list shows names, classification, `conservation_status` and `general_location`, plus `latitude` and `longitude` for plants whose location is `Public`. The public API never returns photos.
+A published plant's public view also includes its `photos`. The public catalog list shows names, classification, `conservation_status`, `general_location`, `cover_photo_url` (the first photo), and `latitude` and `longitude` for plants whose location is `Public`.
 
 ## The web app
 
 | Who | What they get |
 |---|---|
-| Anyone | The species catalog (published plants only) with search and paging. A plant's page shows its details and as much location as an officer allowed. Photos are not shown publicly |
+| Anyone | The species catalog (published plants only) with search and paging. A plant's page shows its details, its photos and as much location as an officer allowed |
 | Botanist | A form to register plants with a photo, GPS and QR code, a list of their own records, and a My Requests tab with each decision and the officer's comment. Internal botanists edit directly. External botanists send edit requests. Any botanist can request a deletion |
 | Conservation officer | All records with publishing, location visibility, direct editing, direct deletion and per-record history. A Change Requests tab to approve or reject botanists' requests |
 | Admin | Everything an officer can do, plus User Accounts: create accounts, change role and botanist type, and deactivate or reactivate accounts |
@@ -376,7 +376,7 @@ The web app reads the backend address from `VITE_API_URL`. The mobile app will n
 ### Behaviour a client has to handle
 
 - QR codes: the QR contains only the `qr_code` text, for example `SFC-2E524325`. `qr_code_image` is a ready-made PNG that can go straight into `<img src="...">`.
-- Restricted details: if `GET /api/plants/:id` returns `"full_detail": false`, the user is an external botanist who is not assigned to the plant. They get the park visitor view, with no photos and a location only if allowed, and unpublished plants return 404 for them.
+- Restricted details: if `GET /api/plants/:id` returns `"full_detail": false`, the user is an external botanist who is not assigned to the plant. They get the park visitor view, with photos and a location only if allowed, and unpublished plants return 404 for them.
 - Visitor view: the public scan returns 404 for unpublished plants. Location fields appear only if an officer allowed them.
 - Photo upload: send `multipart/form-data` with the file in a field named `photo`. Accepted types are JPEG, PNG and WebP, up to 5 MB, with at most 20 photos per plant. The backend reads the file's real type from its content, so a renamed non-image is refused with 400. Do not set the `Content-Type` header yourself. The response contains the full `photo_url`.
 - Editing as an external botanist: `PATCH /api/plants/:id` returns 403. Send an `EDIT` request instead and show it in My Requests.
@@ -430,7 +430,7 @@ All routes except login, setup and the public routes need `Authorization: Bearer
 
 | Method | URL | What it does |
 |---|---|---|
-| GET | `/api/public/plants?search=&page=&limit=` | Species catalog: published plants only, with the area name, GPS only for `Public` plants, and no photos |
+| GET | `/api/public/plants?search=&page=&limit=` | Species catalog: published plants only, with the area name, a cover photo, and GPS only for `Public` plants |
 | GET | `/api/public/plants/qr/:qr_code` | What a park visitor sees after scanning a QR code |
 
 ### Example list response
@@ -511,8 +511,8 @@ Publish a plant. `location_visibility` is required when publishing:
 - Logins take about the same time for unknown emails and wrong passwords, and a deactivated account is revealed only to someone who knows the password.
 - Rate limits: 10 wrong passwords per 15 minutes on login, 10 setup attempts per 15 minutes, and 120 requests per minute per IP on the public endpoints. JSON bodies are limited to 100 KB.
 - Browsers can call the API only from the addresses in `CORS_ORIGINS`.
-- The public endpoints never return photos, and return GPS only when an officer chose `Public`.
-- Uploaded photos are checked by their content (JPEG, PNG or WebP) and limited to 20 per plant. The photo itself is stored exactly as uploaded, so EXIF metadata, including GPS, is deliberately kept because it may be used later. Photos live in a public Storage bucket, so anyone who has a photo link can read that metadata.
+- The public endpoints return photos only for published plants, and return GPS only when an officer chose `Public`.
+- Uploaded photos are checked by their content (JPEG, PNG or WebP) and limited to 20 per plant. The photo itself is stored exactly as uploaded, so EXIF metadata, including GPS, is deliberately kept because it may be used later. Photos live in a public Storage bucket and are shown to park visitors once a plant is published, so anyone who has a photo link can read that metadata, including the GPS position of a plant whose location is `Hidden`. Removing GPS from the public copy of each photo is planned for Sprint 2.
 - Row Level Security is switched on for every table with no policies, so only the backend can read the tables.
 - The web app keeps the login token in `localStorage`.
 
@@ -590,6 +590,7 @@ Publish a plant. `location_visibility` is required when publishing:
 - A file that is not really a JPEG, PNG or WebP image is refused with 400, even when it is renamed or sent with an image content type.
 - An invalid `status` filter on the request lists returns 400.
 - A wrong password for a deactivated account now returns the usual 401 instead of revealing that the account is deactivated.
+- Published plants now include their photos for park visitors and for external botanists who are not assigned to them: `photos` on `GET /api/public/plants/qr/:qr_code` and on the restricted `GET /api/plants/:id` view, and `cover_photo_url` in both plant lists. `GET /api/plants/qr/:qr_code` now also returns `photos`.
 - Both plant lists now include `latitude` and `longitude`: the staff list for users with full access, and the public catalog (and the restricted rows an external botanist sees) only for plants whose location is `Public`, the same rule as a plant's own page.
 
 ### Web app: summary
@@ -609,11 +610,12 @@ Users and developers experience notice:
 - There is no public registration page. An administrator creates accounts, and the first administrator is created on the one-time setup page.
 - The old approve and reject status on plants is replaced by the backend's publish flow with location visibility, and by the change request flow for botanists.
 - `description` is now `morphological_notes`, and only `scientific_name` is required when registering a plant.
-- The public catalog uses `/api/public`, shows no photos, and opens a plant by its QR code (`/species/:qrCode`) instead of by record id.
+- The public catalog uses `/api/public` and opens a plant by its QR code (`/species/:qrCode`) instead of by record id. It does not show photos yet, although the API now returns them (`cover_photo_url` and `photos`).
 
 ## Not built yet
 
 - Admin view of the audit log, password reset and changing your own password.
 - Connecting the mobile app: real login, matching fields, photo upload and offline sync.
+- Removing GPS (EXIF) from the copy of each photo that park visitors see.
 - An OpenAPI description of the API, planned for after the mobile app has a better structure.
 - Later sprints: researcher access requests, reports, IoT sensors and offline sync.
