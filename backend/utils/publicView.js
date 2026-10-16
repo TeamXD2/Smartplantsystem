@@ -11,7 +11,8 @@ const PUBLIC_FIELDS = [
   'ecological_role', 'medicinal_use', 'cultural_significance'
 ];
 
-// Fields shown in the public catalog list (no location detail or photos).
+// Fields shown in the public catalog list (location follows the same rules as
+// the full view; no photos).
 const PUBLIC_LIST_FIELDS = [
   'qr_code', 'common_name', 'scientific_name', 'family', 'genus', 'species', 'conservation_status'
 ];
@@ -44,10 +45,15 @@ function buildPublicView(plant) {
   return view;
 }
 
-// One row of the public catalog list.
+// One row of the public catalog list. Coordinates are included only when the
+// Officer chose Public, exactly as on the plant's own page.
 function buildPublicListItem(plant) {
   const item = {};
   PUBLIC_LIST_FIELDS.forEach((field) => { item[field] = plant[field]; });
+  if (plant.location_visibility === 'Public') {
+    item.latitude = plant.latitude;
+    item.longitude = plant.longitude;
+  }
   item.general_location = publicGeneralLocation(plant) ?? null;
   return item;
 }

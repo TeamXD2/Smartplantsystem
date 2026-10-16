@@ -76,6 +76,10 @@
     {
       "key": "publicView",
       "value": ""
+    },
+    {
+      "key": "externalQrCode",
+      "value": ""
     }
   ],
   "item": [
@@ -885,7 +889,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('List returned', () => pm.response.to.have.status(200));",
-                  "pm.test('Has paging info and the new plant, without GPS', () => {",
+                  "pm.test('Has paging info and the new plant, with its GPS', () => {",
                   "  const json = pm.response.json();",
                   "  pm.expect(json.total).to.be.a('number');",
                   "  pm.expect(json.page).to.eql(1);",
@@ -893,7 +897,7 @@
                   "  const plant = mine(json.plants, pm.collectionVariables.get('plantId'));",
                   "  pm.expect(plant).to.be.an('object');",
                   "  pm.expect(plant.full_detail).to.eql(true);",
-                  "  pm.expect(plant).to.not.have.property('latitude');",
+                  "  pm.expect(Number(plant.latitude)).to.eql(3.8167);",
                   "});"
                 ]
               }
@@ -1295,7 +1299,8 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Plant registered', () => pm.response.to.have.status(201));",
-                  "pm.collectionVariables.set('externalPlantId', pm.response.json().plant_id);"
+                  "pm.collectionVariables.set('externalPlantId', pm.response.json().plant_id);",
+                  "pm.collectionVariables.set('externalQrCode', pm.response.json().qr_code);"
                 ]
               }
             }
@@ -2173,6 +2178,108 @@
                   "  pm.expect(plant).to.not.have.property('latitude');",
                   "  pm.expect(plant).to.not.have.property('longitude');",
                   "  pm.expect(plant).to.not.have.property('plant_id');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Officer publishes a second plant with exact location (Public)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/plants/{{externalPlantId}}/visibility",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "plants",
+                "{{externalPlantId}}",
+                "visibility"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{officerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"publication_status\": \"Published\",\n  \"location_visibility\": \"Public\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Published', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Species catalog shows GPS for a Public plant",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/public/plants?search=Rafflesia&limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "public",
+                "plants"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "Rafflesia"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Catalog returned', () => pm.response.to.have.status(200));",
+                  "pm.test('Public plant listed with its coordinates', () => {",
+                  "  const plant = pm.response.json().plants.find((p) => p.qr_code === pm.collectionVariables.get('externalQrCode'));",
+                  "  pm.expect(plant).to.be.an('object');",
+                  "  pm.expect(Number(plant.latitude)).to.eql(3.81);",
+                  "  pm.expect(Number(plant.longitude)).to.eql(113.78);",
                   "});"
                 ]
               }
