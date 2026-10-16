@@ -140,9 +140,9 @@ async function createPlant(req, res) {
 
 // GET /api/plants?search=&publication_status=&mine=true&page=&limit=
 // (authenticated staff) - plant list for dashboards / "my records".
-// Summary columns only (no GPS, size or notes). External Botanists get their
-// assigned plants plus published ones, and for unassigned plants only the
-// public catalog fields. full_detail says whether opening the plant with
+// Summary columns plus GPS, e.g. for a map (no size or notes). External
+// Botanists get their assigned plants plus published ones, and for unassigned
+// plants only the public catalog fields (GPS only if the Officer chose Public). full_detail says whether opening the plant with
 // GET /api/plants/:id will show everything.
 async function listPlants(req, res) {
   try {
@@ -181,6 +181,7 @@ async function listPlants(req, res) {
     const { rows } = await pool.query(
       `SELECT p.plant_id, p.qr_code, p.common_name, p.scientific_name, p.family, p.genus, p.species,
               p.conservation_status, p.publication_status, p.location_visibility, p.general_location,
+              p.latitude, p.longitude,
               p.registered_by, u.full_name AS registered_by_name, p.created_at, p.updated_at,
               ${COVER_PHOTO_SQL} AS cover_photo_url,
               (ba.assignment_id IS NOT NULL) AS assigned_to_me,

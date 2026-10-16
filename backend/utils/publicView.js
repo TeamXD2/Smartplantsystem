@@ -11,7 +11,8 @@ const PUBLIC_FIELDS = [
   'ecological_role', 'medicinal_use', 'cultural_significance'
 ];
 
-// Fields shown in the public catalog list (no coordinates).
+// Fields shown in the public catalog list (location follows the same rules as
+// the full view).
 const PUBLIC_LIST_FIELDS = [
   'qr_code', 'common_name', 'scientific_name', 'family', 'genus', 'species', 'conservation_status'
 ];
@@ -47,11 +48,16 @@ function buildPublicView(plant, photos = []) {
   return view;
 }
 
-// One row of the public catalog list. The row needs a cover_photo_url column
-// (see COVER_PHOTO_SQL).
+// One row of the public catalog list. Coordinates are included only when the
+// Officer chose Public, exactly as on the plant's own page. The row needs a
+// cover_photo_url column (see COVER_PHOTO_SQL).
 function buildPublicListItem(plant) {
   const item = {};
   PUBLIC_LIST_FIELDS.forEach((field) => { item[field] = plant[field]; });
+  if (plant.location_visibility === 'Public') {
+    item.latitude = plant.latitude;
+    item.longitude = plant.longitude;
+  }
   item.general_location = publicGeneralLocation(plant) ?? null;
   item.cover_photo_url = plant.cover_photo_url ?? null;
   return item;

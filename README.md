@@ -112,7 +112,7 @@ All other accounts are created by an administrator in the web app, under User Ac
 
 ### Testing with Postman
 
-Import `backend/postman/Biodiversity-Sprint1.postman_collection.json`. In the collection's Variables tab, set `adminEmail` and `adminPassword`. In the Upload plant photo request, open Body and pick `backend/postman/sample-leaf.png`. Then run the whole collection. All 64 checks should pass. Each run adds test users (`...@test.com`) and plants to the shared database, so run it only when needed.
+Import `backend/postman/Biodiversity-Sprint1.postman_collection.json`. In the collection's Variables tab, set `adminEmail` and `adminPassword`. In the Upload plant photo request, open Body and pick `backend/postman/sample-leaf.png`. Then run the whole collection. All 67 checks should pass. Each run adds test users (`...@test.com`) and plants to the shared database, so run it only when needed.
 
 ## Configuration
 
@@ -190,7 +190,7 @@ Internal botanists, officers, admins and assigned external botanists see every f
 - `Approximate` adds `general_location` only.
 - `Hidden` adds no location.
 
-A published plant's public view also includes its `photos`. The public catalog list shows only names, classification, `conservation_status`, `general_location` and `cover_photo_url` (the first photo).
+A published plant's public view also includes its `photos`. The public catalog list shows names, classification, `conservation_status`, `general_location`, `cover_photo_url` (the first photo), and `latitude` and `longitude` for plants whose location is `Public`.
 
 ## The web app
 
@@ -346,7 +346,7 @@ The web app reads the backend address from `VITE_API_URL`. The mobile app will n
 - Status codes: `400` invalid input, `401` not logged in, `403` not allowed, `404` not found, `409` conflict (for example a request that was already reviewed), `413` request body too large, `429` too many requests.
 - Decimal values come back as strings, for example `"height_cm": "50.00"` and `"latitude": "3.8167000"`. Use `Number(...)` before doing maths or showing a map.
 - Dates are ISO strings such as `"2026-10-12T06:46:37.088Z"`.
-- List endpoints return `{ plants, total, page, limit }`. Use `?page=2` for the next page. `limit` is 20 by default and 100 at most. Lists carry summary fields only (names, status, `cover_photo_url`), and a plant's own endpoint returns the full details. For external botanists, plants they are not assigned to appear only once published, with the public catalog fields.
+- List endpoints return `{ plants, total, page, limit }`. Use `?page=2` for the next page. `limit` is 20 by default and 100 at most. Lists carry summary fields (names, status, GPS, `cover_photo_url`), and a plant's own endpoint returns the full details. For external botanists, plants they are not assigned to appear only once published, with the public catalog fields.
 
 ### Which endpoint each screen uses
 
@@ -430,7 +430,7 @@ All routes except login, setup and the public routes need `Authorization: Bearer
 
 | Method | URL | What it does |
 |---|---|---|
-| GET | `/api/public/plants?search=&page=&limit=` | Species catalog: published plants only, with the area name and a cover photo but no GPS |
+| GET | `/api/public/plants?search=&page=&limit=` | Species catalog: published plants only, with the area name, a cover photo, and GPS only for `Public` plants |
 | GET | `/api/public/plants/qr/:qr_code` | What a park visitor sees after scanning a QR code |
 
 ### Example list response
@@ -591,6 +591,7 @@ Publish a plant. `location_visibility` is required when publishing:
 - An invalid `status` filter on the request lists returns 400.
 - A wrong password for a deactivated account now returns the usual 401 instead of revealing that the account is deactivated.
 - Published plants now include their photos for park visitors and for external botanists who are not assigned to them: `photos` on `GET /api/public/plants/qr/:qr_code` and on the restricted `GET /api/plants/:id` view, and `cover_photo_url` in both plant lists. `GET /api/plants/qr/:qr_code` now also returns `photos`.
+- Both plant lists now include `latitude` and `longitude`: the staff list for users with full access, and the public catalog (and the restricted rows an external botanist sees) only for plants whose location is `Public`, the same rule as a plant's own page.
 
 ### Web app: summary
 

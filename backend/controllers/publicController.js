@@ -3,11 +3,10 @@ const { parsePaging, likePattern } = require('../utils/listQuery');
 const { isPublished, buildPublicView, buildPublicListItem, COVER_PHOTO_SQL } = require('../utils/publicView');
 
 // GET /api/public/plants?search=&page=&limit=
-// No authentication - the public species catalog. Published plants only,
-// and never any coordinates: a list would let someone collect the GPS of
-// every plant at once. Only the area name is shown, and only when the
-// Officer allowed location to be shown at all. Each plant has its first
-// photo as cover_photo_url.
+// No authentication - the public species catalog. Published plants only.
+// Location follows the Officer's choice, as on the plant's own page: exact
+// GPS for Public, the area name for Public and Approximate, nothing for
+// Hidden. Each plant has its first photo as cover_photo_url.
 // Open a plant with GET /api/public/plants/qr/:qr_code for the full view.
 async function listPublicPlants(req, res) {
   try {
@@ -26,8 +25,8 @@ async function listPublicPlants(req, res) {
 
     const { rows } = await pool.query(
       `SELECT p.qr_code, p.common_name, p.scientific_name, p.family, p.genus, p.species, p.conservation_status,
-              p.location_visibility, p.general_location, ${COVER_PHOTO_SQL} AS cover_photo_url,
-              COUNT(*) OVER () AS total
+              p.location_visibility, p.general_location, p.latitude, p.longitude,
+              ${COVER_PHOTO_SQL} AS cover_photo_url, COUNT(*) OVER () AS total
        FROM plants p
        WHERE p.publication_status = 'Published' ${searchCondition}
        ORDER BY COALESCE(p.common_name, p.scientific_name), p.plant_id
