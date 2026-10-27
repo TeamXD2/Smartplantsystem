@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { View, Text, Pressable, StyleSheet, Alert } from "react-native";
+import { View, Text, Pressable, StyleSheet, Alert, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { getPlant } from "../db";
+import { api, PlantDetail } from "../api";
+import { session } from "../session";
 import { C, F } from "../theme";
 
 export default function Scan() {
@@ -25,15 +26,26 @@ export default function Scan() {
     );
   }
 
-   const handleScan = ({ data }: { data: string }) => {
+  // GET /api/plants/qr/:qr_code → open the plant
+  const handleScan = async ({ data }: { data: string }) => {
     setScanned(true);
-    const plant = getPlant(data);
-    if (plant) {
-      router.replace({ pathname: "/plant-detail", params: { id: plant.id } });
-    } else {
-      Alert.alert("Unknown tag", "This QR code is not a registered plant.", [
-        { text: "Try again", onPress: () => setScanned(false) },
-      ]);
+    const code = data.trim().split("/").pop() || ""; // also accepts a website link ending in the code
+
+    // Visitor (not logged in): open the public plant page
+    if (!session.token) {
+      router.replace({ pathname: "/species", params: { qr: code } });
+      return;
+    }
+    try {
+      const plant = await api<PlantDetail>(`/api/plants/qr/${encodeURIComponent(code)}`);
+      router.replace({ pathname: "/plant-detail", params: { id: String(plant.plant_id) } });
+    } catch (e: any) {
+      const notFound = e.status === 404;
+      Alert.alert(
+        notFound ? "Unknown tag" : "Scan failed",
+        notFound ? "This QR code is not a registered plant." : e.message,
+        [{ text: "Try again", onPress: () => setScanned(false) }]
+      );
     }
   };
 
@@ -67,8 +79,14 @@ export default function Scan() {
         </View>
 
         <View style={s.bottom}>
-          <Text style={s.title}>Align QR code within the frame</Text>
-          <Text style={s.hint}>Detected tags load automatically</Text>
+          {scanned ? (
+            <ActivityIndicator color={C.bg} />
+          ) : (
+            <>
+              <Text style={s.title}>Align QR code within the frame</Text>
+              <Text style={s.hint}>Detected tags load automatically</Text>
+            </>
+          )}
         </View>
       </SafeAreaView>
     </View>

@@ -6,7 +6,8 @@ import QRCode from "react-native-qrcode-svg";
 import { C, F } from "../theme";
 
 export default function PlantQR() {
-  const { id, name } = useLocalSearchParams<{ id: string; name: string }>();
+  const { qr, id, name, photoFailed } =
+    useLocalSearchParams<{ qr: string; id: string; name: string; photoFailed?: string }>();
 
   return (
     <SafeAreaView style={s.safe}>
@@ -17,24 +18,34 @@ export default function PlantQR() {
         <Text style={s.title}>Plant Registered</Text>
         <Text style={s.name}>{name}</Text>
 
+        {/* The QR holds the backend's qr_code text, e.g. SFC-2E524325 */}
         <View style={s.qrBox}>
-          <QRCode value={String(id)} size={210} color={C.text} backgroundColor={C.white} />
+          <QRCode value={String(qr)} size={210} color={C.text} backgroundColor={C.white} />
         </View>
 
         <View style={s.idPill}>
           <Ionicons name="pricetag-outline" size={14} color={C.green} />
-          <Text style={s.idText}>{id}</Text>
+          <Text style={s.idText}>{qr}</Text>
         </View>
 
         <Text style={s.hint}>Print this QR code and attach it to the plant tag.</Text>
 
         <View style={s.status}>
-          <Ionicons name="phone-portrait-outline" size={14} color={C.orange} />
-          <Text style={s.statusText}>Saved on phone · will sync when online</Text>
+          <Ionicons name="time-outline" size={14} color={C.orange} />
+          <Text style={s.statusText}>Under Research · an Officer will publish it</Text>
         </View>
+
+        {!!photoFailed && (
+          <Text style={s.warn}>
+            The photo didn't upload ({photoFailed}). Open "View Details" and tap "Add photo" to try again.
+          </Text>
+        )}
       </View>
 
       <View style={s.footer}>
+        <Pressable style={s.secondary} onPress={() => router.replace({ pathname: "/plant-detail", params: { id: String(id) } })}>
+          <Text style={s.secondaryText}>View Details</Text>
+        </Pressable>
         <Pressable style={s.secondary} onPress={() => router.replace("/register")}>
           <Ionicons name="add" size={18} color={C.orange} />
           <Text style={s.secondaryText}>Register Another</Text>
@@ -59,8 +70,9 @@ const s = StyleSheet.create({
   hint: { fontFamily: F.body, fontSize: 13, color: C.muted, textAlign: "center", marginTop: 12 },
   status: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: C.orangeSoft, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 20, marginTop: 14 },
   statusText: { fontFamily: F.semi, fontSize: 12, color: C.orange },
+  warn: { fontFamily: F.body, fontSize: 13, color: "#B3261E", textAlign: "center", marginTop: 12 },
   footer: { paddingHorizontal: 24, paddingBottom: 24, gap: 10 },
-  secondary: { height: 52, borderRadius: 10, borderWidth: 1.5, borderColor: C.orange, backgroundColor: C.white, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  secondary: { height: 48, borderRadius: 10, borderWidth: 1.5, borderColor: C.orange, backgroundColor: C.white, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   secondaryText: { fontFamily: F.semi, fontSize: 15, color: C.orange },
   button: { height: 52, borderRadius: 10, backgroundColor: C.green, alignItems: "center", justifyContent: "center" },
   buttonText: { fontFamily: F.semi, fontSize: 16, color: C.white },

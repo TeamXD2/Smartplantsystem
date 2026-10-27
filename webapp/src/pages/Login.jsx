@@ -35,15 +35,19 @@ export default function Login() {
       </div>
       <div className="auth-form-side">
         <form onSubmit={handleSubmit} className="auth-form stack">
-          <h2>Staff Login</h2>
+          <div className="auth-brand">
+            <div className="auth-logo"><Leaf size={32} /></div>
+            <h2 className="auth-title">RimbaTag</h2>
+            <p className="auth-sub">Smart Ground-Truthing · Niah National Park</p>
+          </div>
           {error && <div className="alert alert-error">{error}</div>}
           <div className="field">
             <label>Email</label>
-            <input type="email" className="input" required autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input type="email" className="input" placeholder="you@sfc.gov.my" required autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div className="field">
             <label>Password</label>
-            <input type="password" className="input" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input type="password" className="input" placeholder="••••••••" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
           <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
             {busy ? 'Logging in…' : 'Log in'}
@@ -51,6 +55,7 @@ export default function Login() {
           <p className="muted" style={{ textAlign: 'center', fontSize: '0.9rem' }}>
             Accounts are created by an administrator. Ask yours if you need access.
           </p>
+          <p className="auth-footer">Niah National Park · Sarawak Forestry Corporation</p>
         </form>
       </div>
     </div>

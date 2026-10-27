@@ -2,7 +2,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 const { logAction } = require('../utils/auditLog');
-const { validateNewAccount } = require('../utils/validateAccount');
+const { validateNewAccount, validatePassword } = require('../utils/validateAccount');
 require('dotenv').config();
 
 // Compared against when the email doesn't exist, so "unknown email" and "wrong
@@ -148,4 +148,36 @@ async function me(req, res) {
   }
 }
 
-module.exports = { register, login, me };
+// PATCH /api/auth/password  (any logged-in user)
+// Body: { current_password, new_password }
+async function changePassword(req, res) {
+  try {
+    const { current_password, new_password } = req.body || {};
+    if (typeof current_password !== 'string' || typeof new_password !== 'string' || !current_password) {
+      return res.status(400).json({ error: 'current_password and new_password are required' });
+    }
+    const invalid = validatePassword(new_password);
+    if (invalid) {
+      return res.status(400).json({ error: invalid });
+    }
+    if (current_password === new_password) {
+      return res.status(400).json({ error: 'The new password must be different from the current one' });
+    }
+
+    const { rows } = await pool.query('SELECT password_hash FROM users WHERE user_id = $1', [req.user.user_id]);
+    if (rows.length === 0 || !(await bcrypt.compare(current_password, rows[0].password_hash))) {
+      return res.status(400).json({ error: 'Current password is incorrect' });
+    }
+
+    const password_hash = await bcrypt.hash(new_password, 10);
+    await pool.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [password_hash, req.user.user_id]);
+    await logAction({ user_id: req.user.user_id, action: 'CHANGE_PASSWORD', target_table: 'users', target_id: req.user.user_id });
+
+    res.json({ message: 'Password changed' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error while changing the password' });
+  }
+}
+
+module.exports = { register, login, me, changePassword };

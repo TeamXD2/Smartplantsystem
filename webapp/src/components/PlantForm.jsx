@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { MapPin } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Camera, MapPin } from 'lucide-react';
 import { BASE_FIELDS, EXTRA_FIELDS, FIELD_LABELS, toFormValues, buildPayload, diffPayload } from '../plantFields';
 
 // One form for registering and editing a plant.
@@ -20,6 +20,15 @@ export default function PlantForm({ mode = 'create', initial, onSubmit, submitLa
   const [error, setError] = useState('');
   const [locating, setLocating] = useState(false);
   const [created, setCreated] = useState(null);
+  const [preview, setPreview] = useState(null);
+
+  // Show the chosen photo, like the mobile app's preview under "Take photo"
+  useEffect(() => {
+    if (!image) { setPreview(null); return undefined; }
+    const url = URL.createObjectURL(image);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [image]);
 
   function update(key, value) {
     setValues((v) => ({ ...v, [key]: value }));
@@ -94,95 +103,63 @@ export default function PlantForm({ mode = 'create', initial, onSubmit, submitLa
     );
   }
 
-  function area(field, rows = 3) {
+  // One labelled field per row, like the mobile app's Register New Plant screen
+  function field(key, label, extra = {}) {
     return (
       <div className="field">
-        <label>{FIELD_LABELS[field]}</label>
-        <textarea className="input" rows={rows} value={values[field]} onChange={(e) => update(field, e.target.value)} />
+        <label>{label}</label>
+        {input(key, extra)}
       </div>
     );
   }
 
+  function area(key, label, placeholder) {
+    return (
+      <div className="field">
+        <label>{label || FIELD_LABELS[key]}</label>
+        <textarea className="input" rows={3} placeholder={placeholder} value={values[key]} onChange={(e) => update(key, e.target.value)} />
+      </div>
+    );
+  }
+
+  const hasCoords = values.latitude.trim() !== '' && values.longitude.trim() !== '';
+
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} className="plant-form">
       {error && <div className="alert alert-error">{error}</div>}
 
-      <div className="form-grid">
-        <div className="field span-2">
-          <label>Scientific name *</label>
-          {input('scientific_name', { required: true, maxLength: 150 })}
-        </div>
-        <div className="field span-2">
-          <label>Common name</label>
-          {input('common_name', { maxLength: 150 })}
-        </div>
+      {field('scientific_name', 'Scientific name *', { required: true, maxLength: 150, placeholder: 'e.g. Nepenthes rafflesiana' })}
+      {field('common_name', 'Common name', { maxLength: 150, placeholder: "e.g. Raffles' pitcher plant" })}
+      {field('family', 'Family', { maxLength: 100, placeholder: 'e.g. Nepenthaceae' })}
+
+      <div className="form-row">
+        {field('genus', 'Genus', { maxLength: 100, placeholder: 'e.g. Nepenthes' })}
+        {field('species', 'Species', { maxLength: 100, placeholder: 'e.g. rafflesiana' })}
       </div>
 
-      <div className="form-grid-3 form-grid">
-        <div className="field">
-          <label>Family</label>
-          {input('family', { maxLength: 100 })}
-        </div>
-        <div className="field">
-          <label>Genus</label>
-          {input('genus', { maxLength: 100 })}
-        </div>
-        <div className="field">
-          <label>Species</label>
-          {input('species', { maxLength: 100 })}
-        </div>
+      <div className="form-row">
+        {field('height_cm', FIELD_LABELS.height_cm, { type: 'number', step: 'any', min: 0, max: 9999.99, placeholder: 'e.g. 45' })}
+        {field('width_cm', FIELD_LABELS.width_cm, { type: 'number', step: 'any', min: 0, max: 9999.99, placeholder: 'e.g. 20' })}
       </div>
 
-      <div className="form-grid">
-        <div className="field">
-          <label>{FIELD_LABELS.height_cm}</label>
-          {input('height_cm', { type: 'number', step: 'any', min: 0, max: 9999.99 })}
-        </div>
-        <div className="field">
-          <label>{FIELD_LABELS.width_cm}</label>
-          {input('width_cm', { type: 'number', step: 'any', min: 0, max: 9999.99 })}
-        </div>
-      </div>
-
-      {area('morphological_notes')}
-      {area('surrounding_environment')}
-
-      <div className="form-grid-3 form-grid" style={{ alignItems: 'end' }}>
-        <div className="field">
-          <label>Latitude</label>
-          {input('latitude', { type: 'number', step: 'any', min: -90, max: 90 })}
-        </div>
-        <div className="field">
-          <label>Longitude</label>
-          {input('longitude', { type: 'number', step: 'any', min: -180, max: 180 })}
-        </div>
-        <div className="field">
-          <button type="button" className="btn btn-outline btn-block" onClick={useCurrentLocation} disabled={locating}>
-            <MapPin size={16} /> {locating ? 'Locating…' : 'Use my location'}
-          </button>
-        </div>
-      </div>
+      {area('morphological_notes', 'Description / features', 'Leaf shape, flower colour...')}
 
       {editing && (
         <>
-          <div className="form-grid">
-            <div className="field span-2">
-              <label>{FIELD_LABELS.conservation_status}</label>
-              {input('conservation_status', { maxLength: 100, placeholder: 'e.g. Endangered' })}
-            </div>
-          </div>
+          {field('conservation_status', FIELD_LABELS.conservation_status, { maxLength: 100, placeholder: 'e.g. Endangered' })}
           {area('ecological_role')}
           {area('medicinal_use')}
           {area('cultural_significance')}
         </>
       )}
 
-      <div className="field">
-        <label>{editing ? 'Add another photo' : 'Photo'}</label>
+      {/* 📷 Photo: outline button + preview, like the app */}
+      <label className="btn btn-outline btn-block pick-photo">
+        <Camera size={18} /> {image ? 'Change photo' : editing ? 'Add another photo' : 'Choose photo'}
         <input
           key={fileKey}
           type="file"
-          className="input"
+          hidden
           accept="image/jpeg,image/png,image/webp"
           onChange={(e) => {
             const file = e.target.files[0] || null;
@@ -195,11 +172,28 @@ export default function PlantForm({ mode = 'create', initial, onSubmit, submitLa
             setImage(file);
           }}
         />
-        <span className="field-hint">JPEG, PNG or WebP, up to 5 MB.</span>
-      </div>
+      </label>
+      {preview ? <img className="photo-preview" src={preview} alt="Chosen plant photo" /> : <p className="form-hint">JPEG, PNG or WebP, up to 5 MB.</p>}
 
-      <button type="submit" className="btn btn-primary" disabled={busy}>
-        {busy ? 'Saving…' : submitLabel}
+      {/* 📍 GPS: outline button + coordinates, like the app */}
+      <button type="button" className="btn btn-outline btn-block" onClick={useCurrentLocation} disabled={locating}>
+        <MapPin size={18} /> {locating ? 'Getting location...' : hasCoords ? 'Update GPS location' : 'Get GPS location'}
+      </button>
+      {hasCoords && (
+        <p className="gps-text">
+          Lat {Number(values.latitude).toFixed(5)}, Lng {Number(values.longitude).toFixed(5)}
+        </p>
+      )}
+      <details className="manual-gps">
+        <summary>Enter coordinates manually</summary>
+        <div className="form-row">
+          {field('latitude', 'Latitude', { type: 'number', step: 'any', min: -90, max: 90 })}
+          {field('longitude', 'Longitude', { type: 'number', step: 'any', min: -180, max: 180 })}
+        </div>
+      </details>
+
+      <button type="submit" className="btn btn-primary btn-block save-btn" disabled={busy}>
+        {busy ? 'Saving...' : submitLabel}
       </button>
 
       {created && (

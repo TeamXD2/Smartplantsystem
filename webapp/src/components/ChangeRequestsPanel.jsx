@@ -10,6 +10,9 @@ export default function ChangeRequestsPanel() {
   const [requests, setRequests] = useState([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [reviewing, setReviewing] = useState(null); // { id, decision }
+  const [comment, setComment] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -24,18 +27,26 @@ export default function ChangeRequestsPanel() {
     load();
   }, [load]);
 
-  async function review(request, decision) {
-    const comment = window.prompt(
-      decision === 'Approved' ? 'Comment for the botanist (optional):' : 'Reason for rejecting (optional):'
-    );
-    if (comment === null) return; // cancelled
+  // Opens a small comment box in the row (browser pop-ups are blocked in some
+  // browsers, e.g. VS Code's built-in one, so no window.prompt here).
+  function startReview(request, decision) {
+    setReviewing({ id: request.request_id, decision });
+    setComment('');
+  }
+
+  async function confirmReview(e) {
+    e.preventDefault();
+    setBusy(true);
     try {
-      await reviewRequest(request.request_id, decision, comment.trim());
-      setNotice(`Request ${decision.toLowerCase()}.`);
+      await reviewRequest(reviewing.id, reviewing.decision, comment.trim());
+      setNotice(`Request ${reviewing.decision.toLowerCase()}.`);
       setError('');
+      setReviewing(null);
     } catch (err) {
       setNotice('');
       setError(err.message);
+    } finally {
+      setBusy(false);
     }
     load();
   }
@@ -76,12 +87,29 @@ export default function ChangeRequestsPanel() {
                 </td>
                 <td className="muted">{new Date(r.requested_at).toLocaleDateString()}</td>
                 <td>
-                  {r.status === 'Pending' && (
+                  {r.status === 'Pending' && (reviewing && reviewing.id === r.request_id ? (
+                    <form className="review-box" onSubmit={confirmReview}>
+                      <input
+                        className="input"
+                        autoFocus
+                        maxLength={500}
+                        placeholder={reviewing.decision === 'Approved' ? 'Comment (optional)' : 'Reason (optional)'}
+                        value={comment}
+                        onChange={(e) => setComment(e.target.value)}
+                      />
+                      <div className="row-actions">
+                        <button type="submit" className={`btn btn-sm ${reviewing.decision === 'Approved' ? 'btn-forest' : 'btn-danger'}`} disabled={busy}>
+                          {busy ? 'Saving...' : reviewing.decision === 'Approved' ? 'Confirm approve' : 'Confirm reject'}
+                        </button>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setReviewing(null)}>Cancel</button>
+                      </div>
+                    </form>
+                  ) : (
                     <div className="row-actions">
-                      <button className="btn btn-forest btn-sm" onClick={() => review(r, 'Approved')}>Approve</button>
-                      <button className="btn btn-danger btn-sm" onClick={() => review(r, 'Rejected')}>Reject</button>
+                      <button className="btn btn-forest btn-sm" onClick={() => startReview(r, 'Approved')}>Approve</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => startReview(r, 'Rejected')}>Reject</button>
                     </div>
-                  )}
+                  ))}
                 </td>
               </tr>
             ))}

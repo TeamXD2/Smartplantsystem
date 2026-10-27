@@ -25,6 +25,8 @@ const requestRoutes = require('./routes/requestRoutes');
 const publicRoutes = require('./routes/publicRoutes');
 const userRoutes = require('./routes/userRoutes');
 const setupRoutes = require('./routes/setupRoutes');
+const auditRoutes = require('./routes/auditRoutes');
+const iotRoutes = require('./routes/iotRoutes');
 
 const app = express();
 
@@ -80,6 +82,8 @@ app.use('/api/plants', plantRoutes);
 app.use('/api/requests', requestRoutes);   // Edit/delete approval workflow
 app.use('/api/public', publicLimiter, publicRoutes);      // No-login Park Visitor access
 app.use('/api/setup', publicLimiter, setupRoutes);        // One-time first Admin creation (closed once an Admin exists)
+app.use('/api/audit-logs', auditRoutes);   // Admin: who did what, when
+app.use('/api/iot', iotRoutes);            // ESP32 readings + monitoring dashboard
 
 app.get('/', (req, res) => {
   res.json({ message: 'Biodiversity System API is running' });

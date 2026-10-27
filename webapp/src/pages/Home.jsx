@@ -7,7 +7,8 @@ export default function Home() {
       <div className="hero">
         <div className="container">
           <div className="hero-eyebrow">Niah National Park · Field Records</div>
-          <h1>Smart Ground-Truthing &amp; Digital Biodiversity System</h1>
+          <h1>RimbaTag</h1>
+          <p className="hero-lead">Smart Ground-Truthing &amp; Digital Biodiversity System</p>
           <p>
             Verified plant species records from Niah National Park, maintained by Sarawak Forestry
             Corporation with NeuonAI. Field tagging, QR scanning and GPS capture happen in the
@@ -20,6 +21,7 @@ export default function Home() {
             </button>
           </div>
         </div>
+        <span className="hero-credit">Great Cave, Niah National Park</span>
       </div>
 
       <div className="container page">

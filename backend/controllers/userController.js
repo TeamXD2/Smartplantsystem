@@ -1,5 +1,7 @@
 const pool = require('../config/db');
+const bcrypt = require('bcrypt');
 const { logAction } = require('../utils/auditLog');
+const { validatePassword } = require('../utils/validateAccount');
 
 // GET /api/users  (Admin)
 // Lists all accounts so an Admin can find the user_id to manage.
@@ -109,4 +111,32 @@ async function updateUser(req, res) {
   }
 }
 
-module.exports = { listUsers, updateUser };
+// POST /api/users/:id/reset-password  (Admin)
+// Body: { new_password } - a temporary password the Admin gives the person
+// privately (there is no email service). Admins change their own password
+// with PATCH /api/auth/password instead.
+async function resetPassword(req, res) {
+  try {
+    const { id } = req.params;
+    const { new_password } = req.body || {};
+    if (Number(id) === req.user.user_id) {
+      return res.status(400).json({ error: 'Use "Change password" for your own account' });
+    }
+    const invalid = validatePassword(new_password);
+    if (invalid) {
+      return res.status(400).json({ error: invalid });
+    }
+    const password_hash = await bcrypt.hash(new_password, 10);
+    const result = await pool.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [password_hash, id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    await logAction({ user_id: req.user.user_id, action: 'RESET_PASSWORD', target_table: 'users', target_id: id });
+    res.json({ message: 'Password reset' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error while resetting the password' });
+  }
+}
+
+module.exports = { listUsers, updateUser, resetPassword };

@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { useDebounced } from '../hooks';
 import { fetchPlants, registerPlant, deletePlant } from '../queries/plants';
 import { submitRequest } from '../queries/requests';
@@ -28,6 +28,7 @@ export default function PlantRecordsTable({ variant = 'staff', refreshKey = 0 })
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [confirming, setConfirming] = useState(null); // plant_id waiting for "Yes, delete"
 
   const load = useCallback(async () => {
     try {
@@ -66,7 +67,7 @@ export default function PlantRecordsTable({ variant = 'staff', refreshKey = 0 })
   }
 
   async function remove(plant) {
-    if (!window.confirm(`Delete "${plant.scientific_name}" permanently? Its photos are deleted too.`)) return;
+    setConfirming(null);
     try {
       await deletePlant(plant.plant_id);
       finished('Record deleted.');
@@ -77,7 +78,7 @@ export default function PlantRecordsTable({ variant = 'staff', refreshKey = 0 })
   }
 
   async function requestDelete(plant) {
-    if (!window.confirm(`Ask an Officer to delete "${plant.scientific_name}"?`)) return;
+    setConfirming(null);
     try {
       await submitRequest({ plantId: plant.plant_id, type: 'DELETE' });
       finished('Deletion request sent. An Officer will review it.');
@@ -115,7 +116,7 @@ export default function PlantRecordsTable({ variant = 'staff', refreshKey = 0 })
         </div>
         {staff && (
           <button className="btn btn-primary btn-sm" onClick={() => setAdding((a) => !a)}>
-            <Plus size={15} /> {adding ? 'Close' : 'Add record'}
+            {adding ? <X size={15} /> : <Plus size={15} />} {adding ? 'Close' : 'Add record'}
           </button>
         )}
       </div>
@@ -187,10 +188,16 @@ export default function PlantRecordsTable({ variant = 'staff', refreshKey = 0 })
                         <button className="btn btn-outline btn-sm" onClick={() => toggle(p.plant_id, 'history')}>
                           {isOpen && open.kind === 'history' ? 'Close' : 'History'}
                         </button>
-                        {staff ? (
-                          <button className="btn btn-danger btn-sm" onClick={() => remove(p)}>Delete</button>
+                        {confirming === p.plant_id ? (
+                          <span className="confirm-inline">
+                            <span className="muted">Sure?</span>
+                            <button className="btn btn-danger btn-sm" onClick={() => (staff ? remove(p) : requestDelete(p))}>{staff ? 'Yes, delete' : 'Yes, request'}</button>
+                            <button className="btn btn-ghost btn-sm" onClick={() => setConfirming(null)}>No</button>
+                          </span>
                         ) : (
-                          <button className="btn btn-danger btn-sm" onClick={() => requestDelete(p)}>Request delete</button>
+                          <button className="btn btn-danger btn-sm" onClick={() => setConfirming(p.plant_id)}>
+                            {staff ? 'Delete' : 'Request delete'}
+                          </button>
                         )}
                       </div>
                     </td>

@@ -11,17 +11,17 @@ export default function Navbar() {
     <nav className="navbar">
       <div className="container">
         <Link className="navbar-brand" to="/">
-          <Leaf size={20} /> Niah Biodiversity
+          <Leaf size={20} /> RimbaTag
         </Link>
         <div className="navbar-links">
           <Link to="/species">Species Catalog</Link>
           {user ? (
             <>
-              <Link to={dashboardPath(user)}>My Dashboard</Link>
-              <span className="navbar-user">
+              <Link to={dashboardPath(user)}>Dashboard</Link>
+              <Link to="/account" className="navbar-user" title="My account and password">
                 <User size={14} /> {user.full_name} &middot; {user.role_name}
                 {user.botanist_type ? ` (${user.botanist_type})` : ''}
-              </span>
+              </Link>
               <button
                 className="btn btn-outline-light btn-sm"
                 onClick={() => {

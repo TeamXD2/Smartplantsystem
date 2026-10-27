@@ -10,9 +10,11 @@ export default function SpeciesDetail() {
   const { qrCode } = useParams();
   const [plant, setPlant] = useState(null);
   const [error, setError] = useState('');
+  const [chosenPhoto, setChosenPhoto] = useState(null);
 
   useEffect(() => {
     setPlant(null);
+    setChosenPhoto(null);
     setError('');
     fetchPublicPlant(qrCode).then(setPlant).catch((err) => setError(err.message));
   }, [qrCode]);
@@ -38,6 +40,9 @@ export default function SpeciesDetail() {
   ].filter(([, value]) => value);
 
   const hasPoint = plant.latitude != null && plant.longitude != null;
+  const photos = plant.photos || [];
+  const photo = chosenPhoto || (photos[0] && photos[0].photo_url);
+  const setPhoto = setChosenPhoto;
 
   return (
     <div className="container page">
@@ -45,9 +50,22 @@ export default function SpeciesDetail() {
         <ArrowLeft size={15} /> Back to catalog
       </Link>
       <div className="grid grid-2" style={{ alignItems: 'start' }}>
-        <div className="specimen-photo" style={{ height: 320, borderRadius: 'var(--radius)' }}>
-          <Leaf size={56} color="var(--ink-400)" />
-          <span className="specimen-id">{plant.qr_code}</span>
+        <div>
+          <div className="specimen-photo" style={{ height: 320, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+            {photo
+              ? <img src={photo} alt={plant.common_name || plant.scientific_name} className="specimen-img" />
+              : <Leaf size={56} color="var(--ink-400)" />}
+            <span className="specimen-id">{plant.qr_code}</span>
+          </div>
+          {photos.length > 1 && (
+            <div className="photo-thumbs">
+              {photos.map((ph) => (
+                <button key={ph.photo_id} type="button" className={ph.photo_url === photo ? 'active' : ''} onClick={() => setPhoto(ph.photo_url)}>
+                  <img src={ph.photo_url} alt="" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div>
           <h2 style={{ marginBottom: '0.15rem' }}>{plant.common_name || plant.scientific_name}</h2>
