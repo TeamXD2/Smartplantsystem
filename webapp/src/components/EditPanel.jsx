@@ -4,12 +4,13 @@ import { isExternalBotanist } from '../roles';
 import { fetchPlant, updatePlant, uploadPhoto } from '../queries/plants';
 import { submitRequest } from '../queries/requests';
 import PlantForm from './PlantForm';
+import { SkeletonBlock } from './ui/Skeleton';
 
 // Loads the full record, then edits it the way the user's role allows:
 //   Internal Botanist / Officer / Admin -> saved straight away (PATCH).
 //   External Botanist                   -> an EDIT request for an Officer to review.
 // A photo is uploaded immediately in both cases.
-export default function EditPanel({ plantId, onDone }) {
+export default function EditPanel({ plantId, onDone, onDirtyChange }) {
   const { user } = useAuth();
   const external = isExternalBotanist(user);
   const [plant, setPlant] = useState(null);
@@ -43,8 +44,8 @@ export default function EditPanel({ plantId, onDone }) {
     onDone(parts.join(' '));
   }
 
-  if (error) return <div className="alert alert-error">{error}</div>;
-  if (!plant) return <p className="muted">Loading record…</p>;
+  if (error) return <div className="alert alert-error" role="alert">{error}</div>;
+  if (!plant) return <SkeletonBlock height={240} />;
 
   return (
     <div>
@@ -58,6 +59,7 @@ export default function EditPanel({ plantId, onDone }) {
         initial={plant}
         submitLabel={external ? 'Send edit request' : 'Save changes'}
         onSubmit={save}
+        onDirtyChange={onDirtyChange}
       />
     </div>
   );

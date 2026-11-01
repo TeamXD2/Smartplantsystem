@@ -3,6 +3,7 @@ node_modules/
 
 # Secrets - everyone makes their own .env from .env.example
 # (.env.example is the safe template and stays in git)
+.env
 .env.*
 !.env.example
 

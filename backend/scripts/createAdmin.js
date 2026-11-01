@@ -34,7 +34,7 @@ async function main() {
 
   const { rows: roleRows } = await pool.query("SELECT role_id FROM roles WHERE role_name = 'Admin'");
   if (roleRows.length === 0) {
-    console.error("The 'Admin' role is missing - has sprint1_database_schema.sql been run?");
+    console.error("The 'Admin' role is missing - has backend/sql/schema.sql been run?");
     process.exit(1);
   }
 

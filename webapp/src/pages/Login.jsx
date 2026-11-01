@@ -3,8 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { Leaf } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { dashboardPath } from '../roles';
+import Field from '../components/ui/Field';
+import PasswordInput from '../components/ui/PasswordInput';
+import { useDocumentTitle } from '../hooks';
 
 export default function Login() {
+  useDocumentTitle('Staff login');
   const { login } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
@@ -28,31 +32,23 @@ export default function Login() {
 
   return (
     <div className="auth-shell">
-      <div className="auth-side">
-        <Leaf size={28} color="var(--amber-500)" />
-        <h2>Staff access</h2>
-        <p>Botanists, conservation officers and administrators sign in here to submit, review and manage field records for Niah National Park.</p>
-      </div>
-      <div className="auth-form-side">
-        <form onSubmit={handleSubmit} className="auth-form stack">
-          <h2>Staff Login</h2>
-          {error && <div className="alert alert-error">{error}</div>}
-          <div className="field">
-            <label>Email</label>
-            <input type="email" className="input" required autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} />
-          </div>
-          <div className="field">
-            <label>Password</label>
-            <input type="password" className="input" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          </div>
-          <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
-            {busy ? 'Logging in…' : 'Log in'}
-          </button>
-          <p className="muted" style={{ textAlign: 'center', fontSize: '0.9rem' }}>
-            Accounts are created by an administrator. Ask yours if you need access.
-          </p>
-        </form>
-      </div>
+      <form onSubmit={handleSubmit} className="auth-form" noValidate={false}>
+        <div className="auth-brand">
+          <div className="auth-logo"><Leaf size={30} aria-hidden="true" /></div>
+          <h1 className="auth-title">RimbaTag</h1>
+          <p className="auth-sub">Staff sign-in · Niah National Park</p>
+        </div>
+        {error && <div className="alert alert-error" role="alert">{error}</div>}
+        <Field label="Email">
+          <input type="email" className="input" placeholder="you@sfc.gov.my" required autoFocus autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Field>
+        <Field label="Password">
+          <PasswordInput required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        </Field>
+        <button type="submit" className="btn btn-primary btn-lg btn-block" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+        <p className="auth-help">Accounts are created by an administrator. Ask yours if you need access.</p>
+        <p className="auth-footer">Niah National Park · Sarawak Forestry Corporation</p>
+      </form>
     </div>
   );
 }

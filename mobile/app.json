@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "GroundTruthApp",
-    "slug": "GroundTruthApp",
+    "name": "RimbaTag",
+    "slug": "rimbatag",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "groundtruthapp",
+    "scheme": "rimbatag",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon"
@@ -33,7 +33,6 @@
           "imageWidth": 76
         }
       ],
-      "expo-sqlite",
       "expo-font"
     ],
     "experiments": {

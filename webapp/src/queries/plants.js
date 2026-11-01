@@ -68,3 +68,15 @@ export function setVisibility(id, { publication_status, location_visibility, gen
 export function deletePlant(id) {
   return api(`/api/plants/${id}`, { method: 'DELETE' });
 }
+
+// Every page of a list endpoint (the API returns at most 100 per page).
+// Used by the map and the CSV export, which need all matching records.
+export async function fetchAllPages(fetchPage, params = {}, maxPages = 20) {
+  const all = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const data = await fetchPage({ ...params, page, limit: 100 });
+    all.push(...data.plants);
+    if (all.length >= data.total || data.plants.length === 0) break;
+  }
+  return all;
+}

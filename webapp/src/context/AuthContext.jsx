@@ -11,16 +11,31 @@ export function AuthProvider({ children }) {
   const [initialized, setInitialized] = useState(false);
 
   // After a page reload: if a token was saved, ask the backend who it belongs to.
-  // This also catches a token that expired or an account that was deactivated.
+  // A rejected token (expired, or the account was deactivated) signs you out - api()
+  // already clears it on a 401. A failed connection does NOT: the token is kept and
+  // the check is tried once more, so a weak signal in the park doesn't log you out.
   useEffect(() => {
     if (!tokenStore.get()) {
       setInitialized(true);
-      return;
+      return undefined;
     }
-    api('/api/auth/me')
-      .then((data) => setUser(data.user))
-      .catch(() => tokenStore.clear())
-      .finally(() => setInitialized(true));
+    let cancelled = false;
+    async function restore(retry) {
+      try {
+        const data = await api('/api/auth/me');
+        if (!cancelled) setUser(data.user);
+      } catch (err) {
+        if (err.status === 401 || err.status === 403) {
+          tokenStore.clear();
+        } else if (retry && !cancelled) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          if (!cancelled) return restore(false);
+        }
+      }
+      return undefined;
+    }
+    restore(true).finally(() => { if (!cancelled) setInitialized(true); });
+    return () => { cancelled = true; };
   }, []);
 
   // api() fires this when the backend rejects the saved token.

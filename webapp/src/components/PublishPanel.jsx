@@ -1,11 +1,7 @@
 import { useState } from 'react';
 import { setVisibility } from '../queries/plants';
-
-const LOCATION_HELP = {
-  Public: 'Visitors see the exact GPS point.',
-  Approximate: 'Visitors see only the area name below.',
-  Hidden: 'Visitors see no location at all.',
-};
+import Field from './ui/Field';
+import { LOCATION_HELP } from './LocationChoice';
 
 // Officer / Admin: publish a plant to the public catalog and decide how much of
 // its location visitors may see (PATCH /api/plants/:id/visibility).
@@ -40,39 +36,27 @@ export default function PublishPanel({ plant, onDone }) {
 
   return (
     <form onSubmit={handleSubmit} className="stack">
-      {error && <div className="alert alert-error">{error}</div>}
-      <div className="form-grid-3 form-grid">
-        <div className="field">
-          <label>Publication</label>
+      {error && <div className="alert alert-error" role="alert">{error}</div>}
+      <div className="form-grid form-grid-3">
+        <Field label="Publication">
           <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="Under Research">Under Research (staff only)</option>
             <option value="Published">Published (public catalog)</option>
           </select>
-        </div>
-        <div className="field">
-          <label>Location shown to visitors</label>
+        </Field>
+        <Field label="Location shown to visitors" hint={LOCATION_HELP[location]}>
           <select className="input" value={location} onChange={(e) => setLocation(e.target.value)}>
             <option value="Hidden">Hidden</option>
             <option value="Approximate">Approximate</option>
             <option value="Public">Public (exact GPS)</option>
           </select>
-          <span className="field-hint">{LOCATION_HELP[location]}</span>
-        </div>
-        <div className="field">
-          <label>Area name</label>
-          <input
-            className="input"
-            maxLength={150}
-            placeholder="e.g. Niah National Park"
-            value={area}
-            onChange={(e) => setArea(e.target.value)}
-          />
-        </div>
+        </Field>
+        <Field label="Area name">
+          <input className="input" maxLength={150} placeholder="e.g. Niah National Park" value={area} onChange={(e) => setArea(e.target.value)} />
+        </Field>
       </div>
       <div>
-        <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>
-          {busy ? 'Saving…' : 'Save visibility'}
-        </button>
+        <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>{busy ? 'Saving…' : 'Save visibility'}</button>
       </div>
     </form>
   );

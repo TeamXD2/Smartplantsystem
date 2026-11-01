@@ -1,6 +1,14 @@
 // Rules for a new account, shared by the Admin's "create account" endpoint and
 // the first-run setup. Returns an error message, or null when everything is valid.
 
+// Shared by account creation, change password and admin password reset.
+function validatePassword(password) {
+  if (typeof password !== 'string' || password.length < 8 || Buffer.byteLength(password) > 72) {
+    return 'password must be 8 to 72 characters';
+  }
+  return null;
+}
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateNewAccount({ full_name, email, password, role_name, botanist_type }) {
@@ -15,8 +23,9 @@ function validateNewAccount({ full_name, email, password, role_name, botanist_ty
   }
   // bcrypt only uses the first 72 bytes of a password, so longer ones are refused
   // instead of being silently cut short.
-  if (typeof password !== 'string' || password.length < 8 || Buffer.byteLength(password) > 72) {
-    return 'password must be 8 to 72 characters';
+  const badPassword = validatePassword(password);
+  if (badPassword) {
+    return badPassword;
   }
   if (typeof role_name !== 'string') {
     return 'Invalid role_name';
@@ -35,4 +44,4 @@ function validateNewAccount({ full_name, email, password, role_name, botanist_ty
   return null;
 }
 
-module.exports = { validateNewAccount };
+module.exports = { validateNewAccount, validatePassword };
