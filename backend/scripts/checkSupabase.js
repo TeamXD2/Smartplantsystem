@@ -16,7 +16,11 @@ const EXPECTED_TABLES = {
     'request_type', 'proposed_changes', 'requested_by', 'requested_at', 'status', 'reviewed_by', 'reviewed_at',
     'review_comment'],
   botanist_assignments: ['assignment_id', 'botanist_id', 'plant_id', 'assigned_by', 'assigned_at'],
-  audit_logs: ['log_id', 'user_id', 'action', 'target_table', 'target_id', 'details', 'created_at']
+  audit_logs: ['log_id', 'user_id', 'action', 'target_table', 'target_id', 'details', 'created_at'],
+  plant_versions: ['version_id', 'plant_id', 'version_no', 'qr_code', 'common_name', 'scientific_name', 'family',
+    'genus', 'species', 'height_cm', 'width_cm', 'morphological_notes', 'surrounding_environment', 'latitude',
+    'longitude', 'conservation_status', 'ecological_role', 'medicinal_use', 'cultural_significance', 'source',
+    'changed_by', 'approved_by', 'request_id', 'note', 'created_at']
 };
 
 const ok = (msg) => console.log(`  OK    ${msg}`);

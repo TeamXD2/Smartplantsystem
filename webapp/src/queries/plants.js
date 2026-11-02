@@ -29,6 +29,11 @@ export function fetchPlantHistory(id) {
   return api(`/api/plants/${id}/history`);
 }
 
+// { versions: [newest first], rejected_requests: [...] }
+export function fetchPlantVersions(id) {
+  return api(`/api/plants/${id}/versions`);
+}
+
 export function uploadPhoto(plantId, file) {
   const form = new FormData();
   form.append('photo', file);

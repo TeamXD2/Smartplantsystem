@@ -7,7 +7,8 @@ const { removePhotoFiles } = require('../utils/photoStorage');
 const { generateQrCodeString, generateQrCodeImage } = require('../utils/qrcode');
 const { logAction } = require('../utils/auditLog');
 const { validatePlantFields } = require('../utils/validatePlant');
-const { pickEditableFields, applyPlantChanges } = require('../utils/plantChanges');
+const { EDITABLE_FIELDS, pickEditableFields, applyPlantChanges } = require('../utils/plantChanges');
+const { saveVersion, ensureFirstVersion } = require('../utils/plantVersions');
 const { parsePaging, likePattern } = require('../utils/listQuery');
 const { isPublished, buildPublicView, buildPublicListItem, COVER_PHOTO_SQL } = require('../utils/publicView');
 
@@ -109,6 +110,9 @@ async function createPlant(req, res) {
         [registered_by, created.plant_id, registered_by]
       );
     }
+
+    // Version 1: the record exactly as the botanist registered it.
+    await saveVersion(connection, created.plant_id, { source: 'REGISTER', changedBy: registered_by });
 
     await connection.query('COMMIT');
 
@@ -287,11 +291,13 @@ async function updatePlant(req, res) {
     connection = await pool.connect();
     await connection.query('BEGIN');
 
+    await ensureFirstVersion(connection, id);
     const fieldChanges = await applyPlantChanges(connection, id, values);
     if (!fieldChanges) {
       await connection.query('ROLLBACK');
       return res.status(404).json({ error: 'Plant not found' });
     }
+    await saveVersion(connection, id, { source: 'EDIT', changedBy: req.user.user_id });
 
     await connection.query('COMMIT');
 
@@ -484,6 +490,58 @@ async function getPlantHistory(req, res) {
   }
 }
 
+// GET /api/plants/:id/versions  (every saved version of one plant, newest first)
+// Same access as the history: every version holds the exact location, so an
+// External Botanist only sees the versions of plants they are assigned to.
+// Rejected requests come along too, because they explain changes that were
+// proposed but never became a version.
+async function getPlantVersions(req, res) {
+  try {
+    const { id } = req.params;
+
+    const allowed = await canSeeFullDetail(req.user, id);
+    if (!allowed) {
+      return res.status(403).json({ error: 'You do not have access to this plant\'s versions' });
+    }
+
+    const { rows: versions } = await pool.query(
+      `SELECT v.version_id, v.version_no, v.qr_code,
+              ${EDITABLE_FIELDS.map((f) => `v.${f}`).join(', ')},
+              v.source, v.request_id, v.note, v.created_at,
+              v.changed_by, cu.full_name AS changed_by_name, cr.role_name AS changed_by_role, cu.botanist_type AS changed_by_botanist_type,
+              v.approved_by, au.full_name AS approved_by_name
+       FROM plant_versions v
+       LEFT JOIN users cu ON cu.user_id = v.changed_by
+       LEFT JOIN roles cr ON cr.role_id = cu.role_id
+       LEFT JOIN users au ON au.user_id = v.approved_by
+       WHERE v.plant_id = $1
+       ORDER BY v.version_no DESC`,
+      [id]
+    );
+
+    const { rows: rejected } = await pool.query(
+      `SELECT r.request_id, r.request_type, r.proposed_changes, r.requested_at, r.reviewed_at, r.review_comment,
+              qu.full_name AS requested_by_name, qr.role_name AS requested_by_role, qu.botanist_type AS requested_by_botanist_type,
+              ru.full_name AS reviewed_by_name
+       FROM record_change_requests r
+       LEFT JOIN users qu ON qu.user_id = r.requested_by
+       LEFT JOIN roles qr ON qr.role_id = qu.role_id
+       LEFT JOIN users ru ON ru.user_id = r.reviewed_by
+       WHERE r.plant_id = $1 AND r.status = 'Rejected'
+       ORDER BY r.reviewed_at DESC`,
+      [id]
+    );
+
+    res.json({
+      versions,
+      rejected_requests: rejected.map((r) => ({ ...r, proposed_changes: parseJson(r.proposed_changes) }))
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error while fetching plant versions' });
+  }
+}
+
 // PATCH /api/plants/:id/visibility  (Conservation Officer / Admin)
 // Controls what Park Visitors see via the public QR endpoint.
 async function updateVisibility(req, res) {
@@ -593,6 +651,7 @@ module.exports = {
   getPlantByQrCode,
   uploadPlantPhoto,
   getPlantHistory,
+  getPlantVersions,
   updatePlant,
   updateVisibility,
   deletePlant,

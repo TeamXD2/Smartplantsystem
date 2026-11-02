@@ -3,6 +3,7 @@
 -- because both apps reach the data only through the backend:
 --   Sprint 1: accounts, plants, photos, approvals, assignments, audit log
 --   Sprint 2: IoT plant protection (ESP32 sensors, readings, alerts)
+--   Versions: a full copy of each plant record after every change
 --   Storage:  the public "plant-photos" bucket the backend uploads photos to
 --
 -- Run it in Supabase Dashboard -> SQL Editor -> New query -> Run.
@@ -282,6 +283,62 @@ CREATE INDEX IF NOT EXISTS sensor_alerts_open_idx ON sensor_alerts (sensor_id) W
 CREATE INDEX IF NOT EXISTS sensor_alerts_acknowledged_by_idx ON sensor_alerts (acknowledged_by);
 
 -- =====================================================================
+-- Plant versions: a full copy of a plant's record after every change
+-- Used by backend/utils/plantVersions.js
+-- =====================================================================
+
+-- Version 1 is the record as first registered. Every direct edit and every
+-- approved edit request adds the next version; old versions are never changed.
+-- If the plant is deleted its versions stay (plant_id becomes NULL, qr_code
+-- still says which plant they were).
+CREATE TABLE IF NOT EXISTS plant_versions (
+    version_id               INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    plant_id                 INT REFERENCES plants(plant_id) ON DELETE SET NULL,
+    version_no               INT NOT NULL,
+    qr_code                  VARCHAR(100) NOT NULL,
+    -- The plant's editable fields at this version (same types as in plants).
+    common_name              VARCHAR(150),
+    scientific_name          VARCHAR(150) NOT NULL,
+    family                   VARCHAR(100),
+    genus                    VARCHAR(100),
+    species                  VARCHAR(100),
+    height_cm                DECIMAL(6,2),
+    width_cm                 DECIMAL(6,2),
+    morphological_notes      TEXT,
+    surrounding_environment  TEXT,
+    latitude                 DECIMAL(10,7),
+    longitude                DECIMAL(10,7),
+    conservation_status      VARCHAR(100),
+    ecological_role          TEXT,
+    medicinal_use            TEXT,
+    cultural_significance    TEXT,
+    -- How this version came about.
+    source                   VARCHAR(10) NOT NULL CHECK (source IN ('REGISTER', 'EDIT', 'REQUEST', 'BACKFILL')),
+    changed_by               INT NOT NULL REFERENCES users(user_id),
+    approved_by              INT REFERENCES users(user_id),
+    request_id               INT REFERENCES record_change_requests(request_id) ON DELETE SET NULL,
+    note                     TEXT,
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (plant_id, version_no)
+);
+CREATE INDEX IF NOT EXISTS plant_versions_changed_by_idx ON plant_versions (changed_by);
+
+-- Plants registered before this table existed get their current record as
+-- version 1 (source BACKFILL), so every plant has a starting point. Only plants
+-- with no version yet are touched, so re-running adds nothing.
+INSERT INTO plant_versions
+    (plant_id, version_no, qr_code, common_name, scientific_name, family, genus, species,
+     height_cm, width_cm, morphological_notes, surrounding_environment, latitude, longitude,
+     conservation_status, ecological_role, medicinal_use, cultural_significance,
+     source, changed_by, created_at)
+SELECT p.plant_id, 1, p.qr_code, p.common_name, p.scientific_name, p.family, p.genus, p.species,
+       p.height_cm, p.width_cm, p.morphological_notes, p.surrounding_environment, p.latitude, p.longitude,
+       p.conservation_status, p.ecological_role, p.medicinal_use, p.cultural_significance,
+       'BACKFILL', p.registered_by, p.updated_at
+FROM plants p
+WHERE NOT EXISTS (SELECT 1 FROM plant_versions v WHERE v.plant_id = p.plant_id);
+
+-- =====================================================================
 -- Storage: the photo bucket
 -- =====================================================================
 
@@ -319,5 +376,6 @@ ALTER TABLE audit_logs             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE iot_sensors            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sensor_readings        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sensor_alerts          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE plant_versions         ENABLE ROW LEVEL SECURITY;
 
 COMMIT;
