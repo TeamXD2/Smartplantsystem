@@ -1,5 +1,6 @@
 // One page per sidebar item. Each wraps a component, so the features themselves
 // are unchanged - only how you reach them and how they look.
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Info } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -29,15 +30,28 @@ function ExternalNote() {
 export function RecordsPage() {
   const { user } = useAuth();
   const botanist = user.role_name === ROLES.BOTANIST;
+  // Internal Botanists may open every record (and its history); External ones only their own.
+  const canSeeAll = botanist && !isExternalBotanist(user);
+  const [mine, setMine] = useState(true);
   useDocumentTitle(botanist ? 'My records' : 'Species database');
   return (
     <div>
       <PageHeader
         title={botanist ? 'My records' : 'Species database'}
-        description={botanist ? 'The plants you have registered, and where each one stands.' : 'Every species record. Review, publish, edit and export them here.'}
+        description={!botanist ? 'Every species record. Review, publish, edit and export them here.'
+          : mine ? 'The plants you have registered, and where each one stands.'
+            : 'Every species record in the park. Open any of them to edit it or see its history.'}
       />
       <ExternalNote />
-      <PlantRecordsTable variant={botanist ? 'botanist' : 'staff'} />
+      {canSeeAll && (
+        <div className="segmented segmented-tabs" role="group" aria-label="Which records">
+          <button type="button" aria-pressed={mine} onClick={() => setMine(true)}>My records</button>
+          <button type="button" aria-pressed={!mine} onClick={() => setMine(false)}>All records</button>
+        </div>
+      )}
+      {botanist
+        ? <PlantRecordsTable key={mine ? 'mine' : 'all'} variant="botanist" mine={mine || !canSeeAll} />
+        : <PlantRecordsTable variant="staff" />}
     </div>
   );
 }

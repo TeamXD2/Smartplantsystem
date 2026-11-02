@@ -12,6 +12,7 @@ const {
   getPlantByQrCode,
   uploadPlantPhoto,
   getPlantHistory,
+  getPlantVersions,
   updatePlant,
   updateVisibility,
   deletePlant
@@ -29,6 +30,7 @@ router.get('/qr/:qr_code', getPlantByQrCode);            // QR scan lookup (staf
 router.get('/:id', getPlantById);                        // View record (filtered for External Botanists)
 router.patch('/:id', updatePlant);                       // Direct edit (External Botanists are refused in the controller)
 router.get('/:id/history', getPlantHistory);              // Audit trail for this plant
+router.get('/:id/versions', getPlantVersions);            // Every saved version of this plant
 router.post('/:id/photos', upload.single('photo'), uploadPlantPhoto); // Attach photo
 router.patch('/:id/visibility', requireRole('Conservation Officer', 'Admin'), updateVisibility); // Publish / location visibility
 router.delete('/:id', requireRole('Conservation Officer', 'Admin'), deletePlant);                 // Direct delete (Botanists use POST /api/requests)

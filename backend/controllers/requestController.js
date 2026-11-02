@@ -4,6 +4,7 @@ const { canSeeFullDetail, parseJson } = require('./plantController');
 const { isValidId } = require('../middleware/validateId');
 const { validatePlantFields } = require('../utils/validatePlant');
 const { pickEditableFields, applyPlantChanges } = require('../utils/plantChanges');
+const { saveVersion, ensureFirstVersion } = require('../utils/plantVersions');
 const { removePhotoFiles } = require('../utils/photoStorage');
 
 const REQUEST_STATUSES = ['Pending', 'Approved', 'Rejected'];
@@ -195,6 +196,8 @@ async function reviewRequest(req, res) {
 
     if (decision === 'Approved') {
       if (request.request_type === 'EDIT') {
+        // plant_id is NULL once the plant has been deleted; applyPlantChanges then finds nothing.
+        if (request.plant_id) await ensureFirstVersion(connection, request.plant_id);
         const fieldChanges = await applyPlantChanges(
           connection, request.plant_id, parseJson(request.proposed_changes)
         );
@@ -202,6 +205,15 @@ async function reviewRequest(req, res) {
           await connection.query('ROLLBACK');
           return res.status(409).json({ error: 'This plant no longer exists' });
         }
+        // The new version is credited to the botanist who asked for the change,
+        // with the reviewing Officer as approver and their comment as the note.
+        await saveVersion(connection, request.plant_id, {
+          source: 'REQUEST',
+          changedBy: request.requested_by,
+          approvedBy: req.user.user_id,
+          requestId: request.request_id,
+          note: review_comment || null
+        });
         auditDetails.changes = fieldChanges;
       } else if (request.request_type === 'DELETE') {
         // Capture the full record before it's gone, for the audit trail.

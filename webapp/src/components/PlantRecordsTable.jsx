@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Plus, X, Eye, History, Trash2, Download, Globe2, EyeOff, Database, SearchX, Pencil, Leaf, RefreshCw } from 'lucide-react';
+import { Plus, X, Eye, History, Layers, Trash2, Download, Globe2, EyeOff, Database, SearchX, Pencil, Leaf, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmContext';
@@ -19,6 +19,7 @@ import PlantForm from './PlantForm';
 import EditPanel from './EditPanel';
 import PublishPanel from './PublishPanel';
 import HistoryPanel from './HistoryPanel';
+import VersionsPanel from './VersionsPanel';
 import BulkPublishDialog from './BulkPublishDialog';
 import StatusTag from './StatusTag';
 import SpecimenName from './ui/SpecimenName';
@@ -38,18 +39,20 @@ const DEFAULT_SORT = { key: 'updated', dir: 'desc' };
 const distinct = (rows, key) => [...new Set(rows.map((r) => r[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 
 // variant="staff":    Officer / Admin - every record; publish, edit, delete directly.
-// variant="botanist": a Botanist's own records; edit (directly or as a request,
+// variant="botanist": a Botanist's records; edit (directly or as a request,
 //                     depending on Internal / External) and request deletion.
+//                     mine={false} lists every record (Internal Botanists only).
 // All permission rules live in the backend; this only chooses which buttons to show.
-export default function PlantRecordsTable({ variant = 'staff' }) {
+export default function PlantRecordsTable({ variant = 'staff', mine = variant !== 'staff' }) {
   const staff = variant === 'staff';
+  const showBy = !mine; // a "Registered by" column only helps when the list holds other people's records
   const { user } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
   const [params, setParams] = useSearchParams();
-  const { rows, loading, error, capped, reload } = useAllPlants({ mine: !staff });
+  const { rows, loading, error, capped, reload } = useAllPlants({ mine });
 
-  const [open, setOpen] = useState(null); // { id, kind: 'edit' | 'publish' | 'history' }
+  const [open, setOpen] = useState(null); // { id, kind: 'edit' | 'publish' | 'versions' | 'history' }
   const [adding, setAdding] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [progress, setProgress] = useState(null); // { done, total } while a bulk action runs
@@ -99,12 +102,12 @@ export default function PlantRecordsTable({ variant = 'staff' }) {
       { id: 'p-nogps', name: 'Missing GPS', state: { search: '', values: { noGps: true } } },
     ]
     : [
-      { id: 'p-all', name: 'All my records', state: { search: '', values: {} } },
+      { id: 'p-all', name: mine ? 'All my records' : 'All records', state: { search: '', values: {} } },
       { id: 'p-research', name: 'Waiting to be published', state: { search: '', values: { status: 'Under Research' } } },
       { id: 'p-nophoto', name: 'Missing a photo', state: { search: '', values: { noPhoto: true } } },
       { id: 'p-nogps', name: 'Missing GPS', state: { search: '', values: { noGps: true } } },
-    ]), [staff]);
-  const saved = useSavedViews(`records_${staff ? 'staff' : 'botanist'}_${user.user_id}`, presets);
+    ]), [staff, mine]);
+  const saved = useSavedViews(`records_${staff ? 'staff' : mine ? 'botanist' : 'botanist_all'}_${user.user_id}`, presets);
 
   const families = useMemo(() => distinct(rows, 'family'), [rows]);
   const statuses = useMemo(() => distinct(rows, 'conservation_status'), [rows]);
@@ -229,7 +232,7 @@ export default function PlantRecordsTable({ variant = 'staff' }) {
     bulk((r) => (staff ? deletePlant(r.plant_id) : submitRequest({ plantId: r.plant_id, type: 'DELETE' })), staff ? 'Deleted' : 'Requested deletion of', items);
   }
 
-  const columns = staff ? 7 : 6;
+  const columns = showBy ? 7 : 6;
   const busy = Boolean(progress);
   const anyPublished = t.selectedRows.some((r) => r.publication_status === 'Published');
   const anyResearch = t.selectedRows.some((r) => r.publication_status !== 'Published');
@@ -276,7 +279,7 @@ export default function PlantRecordsTable({ variant = 'staff' }) {
         <FilterSelect label="Family" allLabel="All families" value={t.values.family} onChange={(v) => t.setFilter('family', v)} options={[...families, [NONE, 'No family set']]} />
         <FilterSelect label="Conservation status" allLabel="All conservation" value={t.values.conservation} onChange={(v) => t.setFilter('conservation', v)} options={[...statuses, [NONE, 'Not assessed']]} />
         {staff && <FilterSelect label="Location shown" allLabel="All locations" value={t.values.location} onChange={(v) => t.setFilter('location', v)} options={['Hidden', 'Approximate', 'Public']} />}
-        {staff && <FilterSelect label="Registered by" allLabel="Anyone" value={t.values.by} onChange={(v) => t.setFilter('by', v)} options={people} />}
+        {showBy && <FilterSelect label="Registered by" allLabel="Anyone" value={t.values.by} onChange={(v) => t.setFilter('by', v)} options={people} />}
         <FilterChip label="Missing photo" active={Boolean(t.values.noPhoto)} onChange={(v) => t.setFilter('noPhoto', v)} />
         <FilterChip label="Missing GPS" active={Boolean(t.values.noGps)} onChange={(v) => t.setFilter('noGps', v)} />
       </TableToolbar>
@@ -292,13 +295,13 @@ export default function PlantRecordsTable({ variant = 'staff' }) {
       ) : (
         <div className="table-wrap" aria-busy={loading}>
           <table className="data-table records-table">
-            <caption className="sr-only">{staff ? 'Species records' : 'My species records'}. Use the column headings to sort.</caption>
+            <caption className="sr-only">{mine ? 'My species records' : 'Species records'}. Use the column headings to sort.</caption>
             <thead>
               <tr>
                 <th scope="col" className="col-check"><RowCheck checked={t.allOnPage} indeterminate={t.someOnPage} onChange={t.togglePage} label="Select all records on this page" /></th>
                 <SortTh label="Species" sortKey="name" sort={t.sort} onSort={t.toggleSort} />
                 <SortTh label="Family" sortKey="family" sort={t.sort} onSort={t.toggleSort} className="hide-sm" />
-                {staff && <SortTh label="Registered by" sortKey="by" sort={t.sort} onSort={t.toggleSort} className="hide-md" />}
+                {showBy && <SortTh label="Registered by" sortKey="by" sort={t.sort} onSort={t.toggleSort} className="hide-md" />}
                 <SortTh label="Status" sortKey="status" sort={t.sort} onSort={t.toggleSort} className="hide-sm" />
                 <SortTh label="Updated" sortKey="updated" sort={t.sort} onSort={t.toggleSort} className="hide-md" />
                 <th scope="col" className="col-actions"><span className="sr-only">Actions</span></th>
@@ -324,7 +327,7 @@ export default function PlantRecordsTable({ variant = 'staff' }) {
                         </div>
                       </td>
                       <td className="hide-sm">{p.family || <span className="muted">—</span>}</td>
-                      {staff && <td className="hide-md">{p.registered_by_name}</td>}
+                      {showBy && <td className="hide-md">{p.registered_by_name}</td>}
                       <td className="hide-sm">
                         <StatusTag status={p.publication_status} />
                         {p.publication_status === 'Published' && <div className="cell-sub">Location: {p.location_visibility}</div>}
@@ -339,6 +342,7 @@ export default function PlantRecordsTable({ variant = 'staff' }) {
                             label={`More actions for ${name}`}
                             items={[
                               staff && { label: p.publication_status === 'Published' ? 'Visibility' : 'Publish', icon: p.publication_status === 'Published' ? Eye : Globe2, onClick: () => toggle(p.plant_id, 'publish') },
+                              { label: 'Versions', icon: Layers, onClick: () => toggle(p.plant_id, 'versions') },
                               { label: 'History', icon: History, onClick: () => toggle(p.plant_id, 'history') },
                               { label: staff ? 'Delete' : 'Request deletion', icon: Trash2, danger: true, onClick: () => remove(p) },
                             ]}
@@ -351,6 +355,7 @@ export default function PlantRecordsTable({ variant = 'staff' }) {
                         <td colSpan={columns}>
                           {open.kind === 'edit' && <EditPanel plantId={p.plant_id} onDone={finished} onDirtyChange={(d) => { panelDirty.current = d; }} />}
                           {open.kind === 'publish' && <PublishPanel plant={p} onDone={finished} />}
+                          {open.kind === 'versions' && <VersionsPanel plantId={p.plant_id} />}
                           {open.kind === 'history' && <HistoryPanel plantId={p.plant_id} />}
                         </td>
                       </tr>
