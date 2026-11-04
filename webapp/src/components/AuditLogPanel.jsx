@@ -14,6 +14,10 @@ const LIMIT = 25;
 // Plain-English names for the actions the backend writes.
 const LABELS = {
   LOGIN: 'Logged in',
+  LOGIN_FAILED: 'Failed login',
+  LOGIN_BLOCKED: 'Login blocked (too many failures)',
+  PASSWORD_CHECK_FAILED: 'Wrong current password',
+  LOGOUT_ALL: 'Signed out everywhere',
   CREATE_USER: 'Created an account',
   UPDATE_USER: 'Changed an account',
   RESET_PASSWORD: 'Reset a password',

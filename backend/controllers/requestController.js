@@ -1,5 +1,6 @@
 const pool = require('../config/db');
-const { logAction } = require('../utils/auditLog');
+const { logActionTx } = require('../utils/auditLog');
+const { withTransaction } = require('../utils/transaction');
 const { canSeeFullDetail, parseJson } = require('./plantController');
 const { isValidId } = require('../middleware/validateId');
 const { validatePlantFields } = require('../utils/validatePlant');
@@ -62,24 +63,27 @@ async function submitRequest(req, res) {
       changesToStore = values;
     }
 
-    const { rows: [created] } = await pool.query(
-      `INSERT INTO record_change_requests
-        (plant_id, plant_qr_code_snapshot, plant_scientific_name_snapshot,
-         request_type, proposed_changes, requested_by)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING request_id`,
-      [
-        plant_id, plant.qr_code, plant.scientific_name,
-        request_type, changesToStore ? JSON.stringify(changesToStore) : null, req.user.user_id
-      ]
-    );
-
-    await logAction({
-      user_id: req.user.user_id,
-      action: `REQUEST_${request_type}`,
-      target_table: 'plants',
-      target_id: plant_id,
-      details: { request_id: created.request_id, proposed_changes: changesToStore }
+    // The request and its audit entry are saved together.
+    const created = await withTransaction(async (client) => {
+      const { rows: [row] } = await client.query(
+        `INSERT INTO record_change_requests
+          (plant_id, plant_qr_code_snapshot, plant_scientific_name_snapshot,
+           request_type, proposed_changes, requested_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING request_id`,
+        [
+          plant_id, plant.qr_code, plant.scientific_name,
+          request_type, changesToStore ? JSON.stringify(changesToStore) : null, req.user.user_id
+        ]
+      );
+      await logActionTx(client, {
+        user_id: req.user.user_id,
+        action: `REQUEST_${request_type}`,
+        target_table: 'plants',
+        target_id: plant_id,
+        details: { request_id: row.request_id, proposed_changes: changesToStore }
+      });
+      return row;
     });
 
     res.status(201).json({ message: 'Request submitted', request_id: created.request_id, status: 'Pending' });
@@ -190,9 +194,9 @@ async function reviewRequest(req, res) {
       return res.status(409).json({ error: `Request has already been ${request.status}` });
     }
 
-    // Collected here so we can write a detailed audit log AFTER commit.
+    // Collected here for the audit entry, which is written in this same transaction.
     let auditDetails = { request_id: id, review_comment: review_comment || null };
-    let photoUrlsToRemove = [];
+    let photosToRemove = [];
 
     if (decision === 'Approved') {
       if (request.request_type === 'EDIT') {
@@ -228,10 +232,10 @@ async function reviewRequest(req, res) {
         auditDetails.deleted_record = beforeRows[0];
 
         const { rows: photoRows } = await connection.query(
-          'SELECT photo_url FROM plant_photos WHERE plant_id = $1',
+          'SELECT photo_url, original_path FROM plant_photos WHERE plant_id = $1',
           [request.plant_id]
         );
-        photoUrlsToRemove = photoRows.map((p) => p.photo_url);
+        photosToRemove = photoRows;
 
         await connection.query('DELETE FROM plants WHERE plant_id = $1', [request.plant_id]);
       }
@@ -244,16 +248,18 @@ async function reviewRequest(req, res) {
       [decision, req.user.user_id, review_comment || null, id]
     );
 
-    await connection.query('COMMIT');
-
-    await logAction({
+    // The decision, the change it applies and the audit entry are saved together.
+    await logActionTx(connection, {
       user_id: req.user.user_id,
       action: `${decision.toUpperCase()}_REQUEST`,
       target_table: 'plants',
       target_id: request.plant_id,
       details: auditDetails
     });
-    await removePhotoFiles(photoUrlsToRemove);
+
+    await connection.query('COMMIT');
+
+    await removePhotoFiles(photosToRemove);
 
     res.json({ message: `Request ${decision.toLowerCase()}`, request_id: id });
   } catch (err) {

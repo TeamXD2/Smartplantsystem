@@ -8,6 +8,7 @@ import { useUnsavedChanges } from '../useUnsavedChanges';
 import PageHeader from '../components/ui/PageHeader';
 import Field from '../components/ui/Field';
 import { initialsOf } from '../components/shell/UserMenu';
+import { minPasswordLength, passwordHint } from '../utils/passwordPolicy';
 
 // "My account" for every staff member: who you are + change your password.
 export default function Account() {
@@ -63,11 +64,11 @@ export default function Account() {
         <Field label="Current password">
           <input type={type} className="input" required autoComplete="current-password" value={form.current} onChange={(e) => set('current', e.target.value)} />
         </Field>
-        <Field label="New password" hint="8 to 72 characters.">
-          <input type={type} className="input" required minLength={8} maxLength={72} autoComplete="new-password" value={form.next} onChange={(e) => set('next', e.target.value)} />
+        <Field label="New password" hint={passwordHint(user.role_name)}>
+          <input type={type} className="input" required minLength={minPasswordLength(user.role_name)} maxLength={72} autoComplete="new-password" value={form.next} onChange={(e) => set('next', e.target.value)} />
         </Field>
         <Field label="Confirm new password" error={mismatch}>
-          <input type={type} className="input" required minLength={8} maxLength={72} autoComplete="new-password" value={form.confirm} onChange={(e) => set('confirm', e.target.value)} />
+          <input type={type} className="input" required minLength={minPasswordLength(user.role_name)} maxLength={72} autoComplete="new-password" value={form.confirm} onChange={(e) => set('confirm', e.target.value)} />
         </Field>
         <label className="check-row">
           <input type="checkbox" className="check" checked={show} onChange={(e) => setShow(e.target.checked)} />

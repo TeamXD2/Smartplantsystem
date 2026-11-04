@@ -18,6 +18,7 @@ import Dialog from '../components/ui/Dialog';
 import EmptyState from '../components/ui/EmptyState';
 import { SkeletonRows } from '../components/ui/Skeleton';
 import { initialsOf } from '../components/shell/UserMenu';
+import { minPasswordLength, passwordHint } from '../utils/passwordPolicy';
 
 const ROLE_LIST = Object.values(ROLES);
 const NEW_ACCOUNT = { full_name: '', email: '', password: '', role_name: ROLES.BOTANIST, botanist_type: 'Internal' };
@@ -232,8 +233,8 @@ export default function UsersPage() {
             <Field label="Email"><input type="email" className="input" required maxLength={150} autoComplete="off" value={form.email} onChange={(e) => updateForm('email', e.target.value)} /></Field>
           </div>
           <div className="form-grid form-grid-3">
-            <Field label="Temporary password" hint="8 to 72 characters. Share it with the person privately.">
-              <input type="password" className="input" required minLength={8} maxLength={72} autoComplete="new-password" value={form.password} onChange={(e) => updateForm('password', e.target.value)} />
+            <Field label="Temporary password" hint={`${passwordHint(form.role_name)} Share it with the person privately.`}>
+              <input type="password" className="input" required minLength={minPasswordLength(form.role_name)} maxLength={72} autoComplete="new-password" value={form.password} onChange={(e) => updateForm('password', e.target.value)} />
             </Field>
             <Field label="Role">
               <select className="input" value={form.role_name} onChange={(e) => updateForm('role_name', e.target.value)}>
@@ -375,8 +376,8 @@ export default function UsersPage() {
         )}
       >
         <form id="reset-form" onSubmit={submitReset}>
-          <Field label="Temporary password" hint="8 to 72 characters.">
-            <input type="text" className="input" required minLength={8} maxLength={72} autoComplete="off" value={tempPassword} onChange={(e) => setTempPassword(e.target.value)} autoFocus />
+          <Field label="Temporary password" hint={passwordHint(resetFor?.role_name)}>
+            <input type="text" className="input" required minLength={minPasswordLength(resetFor?.role_name)} maxLength={72} autoComplete="off" value={tempPassword} onChange={(e) => setTempPassword(e.target.value)} autoFocus />
           </Field>
         </form>
       </Dialog>

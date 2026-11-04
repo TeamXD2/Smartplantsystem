@@ -26,4 +26,4 @@ function likePattern(search) {
   return `%${escaped}%`;
 }
 
-module.exports = { parsePaging, likePattern, MAX_LIMIT };
+module.exports = { parsePaging, likePattern };

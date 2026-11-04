@@ -5,6 +5,8 @@ import Field from '../components/ui/Field';
 import { useDocumentTitle } from '../hooks';
 import { useAuth } from '../context/AuthContext';
 import { createFirstAdmin } from '../queries/setup';
+import { ROLES } from '../roles';
+import { minPasswordLength, passwordHint } from '../utils/passwordPolicy';
 
 // One-time page for creating the first administrator. SetupGate shows it only
 // while the backend reports that no Admin exists, and never again afterwards.
@@ -66,8 +68,8 @@ export default function Setup({ keyRequired, onDone }) {
         <Field label="Email">
           <input type="email" className="input" required maxLength={150} autoComplete="username" value={form.email} onChange={(e) => update('email', e.target.value)} />
         </Field>
-        <Field label="Password" hint="8 to 72 characters.">
-          <input type="password" className="input" required minLength={8} maxLength={72} autoComplete="new-password" value={form.password} onChange={(e) => update('password', e.target.value)} />
+        <Field label="Password" hint={passwordHint(ROLES.ADMIN)}>
+          <input type="password" className="input" required minLength={minPasswordLength(ROLES.ADMIN)} maxLength={72} autoComplete="new-password" value={form.password} onChange={(e) => update('password', e.target.value)} />
         </Field>
         <Field label="Confirm password">
           <input type="password" className="input" required autoComplete="new-password" value={form.confirm} onChange={(e) => update('confirm', e.target.value)} />

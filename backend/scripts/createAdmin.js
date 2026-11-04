@@ -8,6 +8,7 @@
 // that matters on a shared machine.
 const bcrypt = require('bcrypt');
 const pool = require('../config/db');
+const { validatePassword } = require('../utils/validateAccount');
 
 async function main() {
   const args = process.argv.slice(2).filter((a) => a !== '--force');
@@ -18,8 +19,11 @@ async function main() {
     console.error('Usage: npm run create-admin -- "Full Name" email password [--force]');
     process.exit(1);
   }
-  if (password.length < 8 || Buffer.byteLength(password) > 72) {
-    console.error('The password must be 8 to 72 characters.');
+  // The same rules as everywhere else: an Admin password needs 12 or more characters, must not be a
+  // common password, and must not contain the name or email.
+  const invalidPassword = validatePassword(password, { role_name: 'Admin', email, full_name: fullName });
+  if (invalidPassword) {
+    console.error(`${invalidPassword}.`);
     process.exit(1);
   }
 

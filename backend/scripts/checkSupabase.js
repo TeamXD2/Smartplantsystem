@@ -6,17 +6,18 @@ const { createClient } = require('@supabase/supabase-js');
 
 const EXPECTED_TABLES = {
   roles: ['role_id', 'role_name'],
-  users: ['user_id', 'full_name', 'email', 'password_hash', 'role_id', 'botanist_type', 'is_active', 'created_at'],
+  users: ['user_id', 'full_name', 'email', 'password_hash', 'role_id', 'botanist_type', 'is_active', 'token_version', 'created_at'],
   plants: ['plant_id', 'qr_code', 'common_name', 'scientific_name', 'family', 'genus', 'species', 'height_cm',
     'width_cm', 'morphological_notes', 'surrounding_environment', 'latitude', 'longitude', 'location_visibility',
     'general_location', 'conservation_status', 'publication_status', 'ecological_role', 'medicinal_use',
     'cultural_significance', 'registered_by', 'created_at', 'updated_at'],
-  plant_photos: ['photo_id', 'plant_id', 'photo_url', 'uploaded_by', 'uploaded_at'],
+  plant_photos: ['photo_id', 'plant_id', 'photo_url', 'uploaded_by', 'uploaded_at', 'original_path'],
   record_change_requests: ['request_id', 'plant_id', 'plant_qr_code_snapshot', 'plant_scientific_name_snapshot',
     'request_type', 'proposed_changes', 'requested_by', 'requested_at', 'status', 'reviewed_by', 'reviewed_at',
     'review_comment'],
   botanist_assignments: ['assignment_id', 'botanist_id', 'plant_id', 'assigned_by', 'assigned_at'],
-  audit_logs: ['log_id', 'user_id', 'action', 'target_table', 'target_id', 'details', 'created_at'],
+  login_failures: ['failure_id', 'email_hash', 'ip_address', 'created_at'],
+  audit_logs: ['log_id', 'user_id', 'action', 'target_table', 'target_id', 'details', 'created_at', 'ip_address', 'user_agent'],
   plant_versions: ['version_id', 'plant_id', 'version_no', 'qr_code', 'common_name', 'scientific_name', 'family',
     'genus', 'species', 'height_cm', 'width_cm', 'morphological_notes', 'surrounding_environment', 'latitude',
     'longitude', 'conservation_status', 'ecological_role', 'medicinal_use', 'cultural_significance', 'source',
@@ -101,6 +102,39 @@ async function checkDatabase() {
       info(`Rows: ${counts.users} users, ${counts.plants} plants`);
     }
 
+    // The audit history must be append-only.
+    if (found.audit_logs) {
+      const { rows: trig } = await client.query(
+        `SELECT 1 FROM pg_trigger WHERE tgname = 'audit_logs_append_only' AND tgrelid = 'audit_logs'::regclass AND tgenabled <> 'D'`
+      );
+      if (trig.length > 0) ok('audit_logs is append-only (its rows cannot be edited or deleted)');
+      else bad('audit_logs is not protected against edits and deletes - run schema.sql again');
+    }
+
+    // Photos from before the private originals bucket existed still carry their GPS in public.
+    if (found.plant_photos && found.plant_photos.columns.includes('original_path')) {
+      const { rows: [photos] } = await client.query(
+        'SELECT COUNT(*)::int AS n FROM plant_photos WHERE original_path IS NULL'
+      );
+      if (photos.n > 0) {
+        bad(`${photos.n} photo(s) have no private original yet - their public copy may still contain GPS. Run: npm run sanitize-photos`);
+      } else {
+        ok('Every photo has a private original and a metadata-free public copy');
+      }
+    }
+
+    // IoT boards need their own key, otherwise they cannot send readings.
+    if (found.iot_sensors && found.iot_sensors.columns.includes('key_hash')) {
+      const { rows: [sensors] } = await client.query(
+        'SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE key_hash IS NULL)::int AS without_key FROM iot_sensors'
+      );
+      if (sensors.without_key > 0) {
+        bad(`${sensors.without_key} of ${sensors.total} sensor(s) have no device key - an Admin must create one (POST /api/iot/sensors/:id/rotate-key)`);
+      } else if (sensors.total > 0) {
+        ok(`All ${sensors.total} sensor(s) have their own device key`);
+      }
+    }
+
     // Accounts made with Supabase Auth (not used by this backend)
     const { rows: [authUsers] } = await client.query(
       `SELECT COUNT(*)::int AS n FROM auth.users`
@@ -135,6 +169,17 @@ async function checkStorage() {
   }
   if (bucket.public) ok(`Bucket "${bucketName}" exists and is public`);
   else bad(`Bucket "${bucketName}" is private - turn on "Public bucket", or photo links won't open`);
+
+  // The originals still contain GPS, so this bucket must exist AND must NOT be public.
+  const originalName = process.env.SUPABASE_ORIGINAL_BUCKET || 'plant-photos-original';
+  const { data: originals, error: originalsError } = await supabase.storage.getBucket(originalName);
+  if (originalsError) {
+    bad(`Bucket "${originalName}" for the original photos is missing - run schema.sql again, or create it as a PRIVATE bucket`);
+  } else if (originals.public) {
+    bad(`Bucket "${originalName}" is PUBLIC - it holds photos with GPS, turn off "Public bucket" in Dashboard -> Storage`);
+  } else {
+    ok(`Bucket "${originalName}" exists and is private`);
+  }
 }
 
 (async () => {

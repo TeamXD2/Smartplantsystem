@@ -29,8 +29,8 @@ function publicGeneralLocation(plant) {
 
 // Full public view of one published plant (a plants row in, safe object out).
 // photos are its plant_photos rows. Callers must check isPublished() first.
-// Photos are shown as uploaded, so their EXIF metadata (which can include GPS)
-// is not removed yet - planned for Sprint 2.
+// The photo_url of each photo is the public copy, which has had its EXIF metadata
+// (GPS included) removed on upload; the original is private.
 function buildPublicView(plant, photos = []) {
   const view = {};
   PUBLIC_FIELDS.forEach((field) => { view[field] = plant[field]; });

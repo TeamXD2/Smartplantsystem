@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
 require('dotenv').config();
 
 const REQUIRED_ENV = ['JWT_SECRET', 'DATABASE_URL', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
@@ -27,6 +28,8 @@ const userRoutes = require('./routes/userRoutes');
 const setupRoutes = require('./routes/setupRoutes');
 const auditRoutes = require('./routes/auditRoutes');
 const iotRoutes = require('./routes/iotRoutes');
+const { requestContext } = require('./middleware/requestContext');
+const { allowedOrigins } = require('./config/origins');
 
 const app = express();
 
@@ -39,28 +42,33 @@ if (/^\d+$/.test(process.env.TRUST_PROXY || '')) {
   app.set('trust proxy', Number(process.env.TRUST_PROXY));
 }
 
+// Security headers. This API only ever sends JSON, so the Content-Security-Policy forbids
+// loading or framing anything from its responses. HSTS ("always use HTTPS") is only sent in
+// production: over plain http://localhost it would do nothing.
+app.use(helmet({
+  contentSecurityPolicy: { useDefaults: false, directives: { 'default-src': ["'none'"], 'frame-ancestors': ["'none'"] } },
+  frameguard: { action: 'deny' },
+  referrerPolicy: { policy: 'no-referrer' },
+  hsts: process.env.NODE_ENV === 'production' ? { maxAge: 15552000, includeSubDomains: true } : false,
+  crossOriginResourcePolicy: { policy: 'same-site' }
+}));
 app.use((req, res, next) => {
-  res.set({
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
-    'Referrer-Policy': 'no-referrer',
-    'Cache-Control': 'no-store'
-  });
+  res.set('Cache-Control', 'no-store'); // nothing from this API should sit in a cache
   next();
 });
 
+// Remembers the caller's IP address and device for the audit log.
+app.use(requestContext);
+
 // Browsers only let the web app call this API from an origin listed here.
 // (CORS is a browser rule: the mobile app, Postman and curl are not affected.)
-const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173')
-  .split(',')
-  .map((origin) => origin.trim().replace(/\/$/, ''))
-  .filter(Boolean);
-
+// credentials: true lets those pages send and receive the session cookie of the web app.
 app.use(cors({
   origin(origin, callback) {
     // No Origin header = not a browser page (mobile app, Postman, curl).
     callback(null, !origin || allowedOrigins.includes(origin));
   },
+  credentials: true,
   maxAge: 600
 }));
 

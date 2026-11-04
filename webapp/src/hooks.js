@@ -108,7 +108,7 @@ export function useScrollLock(active) {
   }, [active]);
 }
 
-export function isTyping(target) {
+function isTyping(target) {
   if (!target) return false;
   const tag = target.tagName;
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;

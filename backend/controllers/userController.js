@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const bcrypt = require('bcrypt');
-const { logAction } = require('../utils/auditLog');
+const { logActionTx } = require('../utils/auditLog');
+const { withTransaction } = require('../utils/transaction');
 const { validatePassword } = require('../utils/validateAccount');
 
 // GET /api/users  (Admin)
@@ -88,21 +89,27 @@ async function updateUser(req, res) {
       return res.status(400).json({ error: 'Nothing to update' });
     }
 
-    const result = await pool.query(
-      `UPDATE users SET ${fields.map((f, i) => `${f} = $${i + 1}`).join(', ')} WHERE user_id = $${fields.length + 1}`,
-      [...fields.map((f) => updates[f]), id]
-    );
-    if (result.rowCount === 0) {
+    // Deactivating an account or changing its role/type also ends its current sessions.
+    const endSessions = updates.is_active === false || 'role_id' in updates || 'botanist_type' in updates;
+    // The change and its audit entry are saved together: no role or status change without a record.
+    const found = await withTransaction(async (client) => {
+      const result = await client.query(
+        `UPDATE users SET ${fields.map((f, i) => `${f} = $${i + 1}`).join(', ')}${endSessions ? ', token_version = token_version + 1' : ''} WHERE user_id = $${fields.length + 1}`,
+        [...fields.map((f) => updates[f]), id]
+      );
+      if (result.rowCount === 0) return false;
+      await logActionTx(client, {
+        user_id: req.user.user_id,
+        action: 'UPDATE_USER',
+        target_table: 'users',
+        target_id: id,
+        details: { is_active, role_name, botanist_type }
+      });
+      return true;
+    });
+    if (!found) {
       return res.status(404).json({ error: 'User not found' });
     }
-
-    await logAction({
-      user_id: req.user.user_id,
-      action: 'UPDATE_USER',
-      target_table: 'users',
-      target_id: id,
-      details: { is_active, role_name, botanist_type }
-    });
 
     res.json({ message: 'User updated' });
   } catch (err) {
@@ -122,16 +129,33 @@ async function resetPassword(req, res) {
     if (Number(id) === req.user.user_id) {
       return res.status(400).json({ error: 'Use "Change password" for your own account' });
     }
-    const invalid = validatePassword(new_password);
+    // The rules depend on the account the password is for (its role, email and name).
+    const { rows: [target] } = await pool.query(
+      `SELECT u.email, u.full_name, r.role_name FROM users u JOIN roles r ON u.role_id = r.role_id WHERE u.user_id = $1`,
+      [id]
+    );
+    if (!target) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const invalid = validatePassword(new_password, target);
     if (invalid) {
       return res.status(400).json({ error: invalid });
     }
     const password_hash = await bcrypt.hash(new_password, 10);
-    const result = await pool.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [password_hash, id]);
-    if (result.rowCount === 0) {
+    // A reset also ends the account's current sessions, so whoever held the old password
+    // (or a token from it) is locked out.
+    const found = await withTransaction(async (client) => {
+      const result = await client.query(
+        'UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE user_id = $2',
+        [password_hash, id]
+      );
+      if (result.rowCount === 0) return false;
+      await logActionTx(client, { user_id: req.user.user_id, action: 'RESET_PASSWORD', target_table: 'users', target_id: id });
+      return true;
+    });
+    if (!found) {
       return res.status(404).json({ error: 'User not found' });
     }
-    await logAction({ user_id: req.user.user_id, action: 'RESET_PASSWORD', target_table: 'users', target_id: id });
     res.json({ message: 'Password reset' });
   } catch (err) {
     console.error(err);
