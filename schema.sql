@@ -4,7 +4,8 @@
 --   Sprint 1: accounts, plants, photos, approvals, assignments, audit log
 --   Sprint 2: IoT plant protection (ESP32 sensors, readings, alerts)
 --   Versions: a full copy of each plant record after every change
---   Storage:  the public "plant-photos" bucket the backend uploads photos to
+--   Storage:  the public "plant-photos" bucket (metadata-free copies shown to visitors)
+--             and the private "plant-photos-original" bucket (untouched uploads, staff only)
 --
 -- Run it in Supabase Dashboard -> SQL Editor -> New query -> Run.
 --
@@ -13,8 +14,9 @@
 -- never deletes or overwrites rows, and never changes a column that already exists.
 -- Everything runs in one transaction, so if anything fails nothing is applied.
 --
--- The photo bucket is named "plant-photos". If SUPABASE_PHOTO_BUCKET in
--- backend/.env uses another name, change the name in the Storage section below.
+-- The photo buckets are named "plant-photos" and "plant-photos-original". If
+-- SUPABASE_PHOTO_BUCKET or SUPABASE_ORIGINAL_BUCKET in backend/.env use other names,
+-- change the names in the Storage section below.
 
 BEGIN;
 
@@ -40,12 +42,17 @@ CREATE TABLE IF NOT EXISTS users (
     role_id         INT NOT NULL REFERENCES roles(role_id),
     botanist_type   VARCHAR(20) DEFAULT NULL CHECK (botanist_type IN ('Internal', 'External')),
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Raised whenever the account's sessions must stop working (password change or
+    -- reset, deactivation, "sign out everywhere"). Login tokens carry the number they
+    -- were issued with and are refused once it no longer matches.
+    token_version   INT NOT NULL DEFAULT 0,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 -- Columns that older copies of this table may lack. Existing columns are left alone.
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS botanist_type VARCHAR(20) DEFAULT NULL CHECK (botanist_type IN ('Internal', 'External')),
     ADD COLUMN IF NOT EXISTS is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+    ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW();
 -- Emails are compared case-insensitively (Admin@x.com = admin@x.com).
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_key ON users (LOWER(email));
@@ -122,10 +129,15 @@ CREATE TABLE IF NOT EXISTS plant_photos (
     plant_id       INT NOT NULL REFERENCES plants(plant_id) ON DELETE CASCADE,
     photo_url      VARCHAR(255) NOT NULL,
     uploaded_by    INT NOT NULL REFERENCES users(user_id),
-    uploaded_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    uploaded_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- photo_url is the public copy with its metadata (EXIF, GPS) removed. original_path
+    -- is where the untouched upload lives in the PRIVATE originals bucket (NULL for
+    -- photos uploaded before that existed; scripts/sanitizeExistingPhotos.js fills it in).
+    original_path  VARCHAR(300)
 );
 ALTER TABLE plant_photos
-    ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ADD COLUMN IF NOT EXISTS uploaded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS original_path VARCHAR(300);
 
 CREATE TABLE IF NOT EXISTS record_change_requests (
     request_id                     INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -201,7 +213,12 @@ CREATE TABLE IF NOT EXISTS iot_sensors (
     longitude      DECIMAL(10,7),
     location_note  VARCHAR(150),
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_seen_at   TIMESTAMPTZ
+    last_seen_at   TIMESTAMPTZ,
+    -- Each board has its own secret key. Only its SHA-256 hash is stored (the key itself
+    -- is shown once, when an Admin registers or rotates it). NULL = the board is not
+    -- allowed to send readings.
+    key_hash       CHAR(64),
+    key_created_at TIMESTAMPTZ
 );
 
 -- Every reading a board sends (temperature, humidity, soil moisture, PIR motion).
@@ -238,7 +255,9 @@ ALTER TABLE iot_sensors
     ADD COLUMN IF NOT EXISTS longitude     DECIMAL(10,7),
     ADD COLUMN IF NOT EXISTS location_note VARCHAR(150),
     ADD COLUMN IF NOT EXISTS created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    ADD COLUMN IF NOT EXISTS last_seen_at  TIMESTAMPTZ;
+    ADD COLUMN IF NOT EXISTS last_seen_at  TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS key_hash       CHAR(64),
+    ADD COLUMN IF NOT EXISTS key_created_at TIMESTAMPTZ;
 ALTER TABLE sensor_readings
     ADD COLUMN IF NOT EXISTS temperature_c NUMERIC(5,2),
     ADD COLUMN IF NOT EXISTS humidity_pct  NUMERIC(5,2),
@@ -276,6 +295,7 @@ END $$;
 
 -- Needed: the backend registers boards with INSERT ... ON CONFLICT (device_code).
 CREATE UNIQUE INDEX IF NOT EXISTS iot_sensors_device_code_key ON iot_sensors (device_code);
+CREATE UNIQUE INDEX IF NOT EXISTS iot_sensors_key_hash_key ON iot_sensors (key_hash) WHERE key_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS iot_sensors_plant_id_idx ON iot_sensors (plant_id);                           -- deleting a plant
 CREATE INDEX IF NOT EXISTS sensor_readings_sensor_time_idx ON sensor_readings (sensor_id, recorded_at DESC);  -- latest reading, charts, stats
 CREATE INDEX IF NOT EXISTS sensor_alerts_cooldown_idx ON sensor_alerts (sensor_id, alert_type, created_at DESC); -- "same alert recently?" check
@@ -354,6 +374,12 @@ BEGIN
         INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
         VALUES ('plant-photos', 'plant-photos', TRUE, 5242880, ARRAY['image/jpeg', 'image/png', 'image/webp'])
         ON CONFLICT (id) DO NOTHING;
+
+        -- Private bucket for the untouched uploads (they still contain EXIF/GPS). It is never
+        -- public: staff open a photo through a short-lived signed link from the backend.
+        INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+        VALUES ('plant-photos-original', 'plant-photos-original', FALSE, 5242880, ARRAY['image/jpeg', 'image/png', 'image/webp'])
+        ON CONFLICT (id) DO NOTHING;
     END IF;
 END $$;
 
@@ -377,5 +403,46 @@ ALTER TABLE iot_sensors            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sensor_readings        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sensor_alerts          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE plant_versions         ENABLE ROW LEVEL SECURITY;
+
+-- =====================================================================
+-- Audit log integrity
+-- =====================================================================
+
+-- Where an action came from: the caller's IP address and device (browser or app).
+ALTER TABLE audit_logs
+    ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45),
+    ADD COLUMN IF NOT EXISTS user_agent VARCHAR(255);
+
+-- The history can only grow: an existing row can neither be edited nor deleted, so
+-- nobody can rewrite what happened afterwards. (For legitimate maintenance the table
+-- owner can switch this off for a moment: ALTER TABLE audit_logs DISABLE TRIGGER
+-- audit_logs_append_only; ... then ENABLE TRIGGER again.)
+CREATE OR REPLACE FUNCTION audit_logs_append_only() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_logs is append-only: % is not allowed', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS audit_logs_append_only ON audit_logs;
+CREATE TRIGGER audit_logs_append_only
+    BEFORE UPDATE OR DELETE ON audit_logs
+    FOR EACH ROW EXECUTE FUNCTION audit_logs_append_only();
+
+-- =====================================================================
+-- Login protection
+-- =====================================================================
+
+-- One row per failed login (or wrong current password). The backend refuses further attempts
+-- for an email while too many failures from the same IP address, or from anywhere, are recent.
+-- The email is kept only as a SHA-256 hash, and rows older than a day are removed by the backend.
+CREATE TABLE IF NOT EXISTS login_failures (
+    failure_id  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    email_hash  CHAR(64) NOT NULL,
+    ip_address  VARCHAR(45),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS login_failures_email_idx   ON login_failures (email_hash, created_at DESC);
+CREATE INDEX IF NOT EXISTS login_failures_created_idx ON login_failures (created_at);
+ALTER TABLE login_failures ENABLE ROW LEVEL SECURITY;
 
 COMMIT;

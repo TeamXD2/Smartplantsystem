@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import PlantMap from './PlantMap';
 import { fetchPlants, fetchAllPages } from '../queries/plants';
 import { fetchSensors } from '../queries/iot';
-import { Skeleton } from './ui/Skeleton';
 
 // Distribution map for staff: every plant with GPS (exact position, whatever the
 // public visibility setting) plus the IoT sensors.

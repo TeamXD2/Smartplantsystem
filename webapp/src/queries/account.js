@@ -2,6 +2,8 @@
 import { api } from '../api';
 
 // Any logged-in user changes their own password.
+// Changing the password ends every other login of the account; the backend replaces this
+// browser's session cookie with a fresh one, so the person stays signed in.
 export function changePassword(current_password, new_password) {
   return api('/api/auth/password', { method: 'PATCH', body: { current_password, new_password } });
 }

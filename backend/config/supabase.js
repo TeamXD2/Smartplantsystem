@@ -8,6 +8,10 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
   auth: { persistSession: false, autoRefreshToken: false }
 });
 
+// Public bucket: the metadata-free copies that visitors see.
 const PHOTO_BUCKET = process.env.SUPABASE_PHOTO_BUCKET || 'plant-photos';
+// PRIVATE bucket: the untouched uploads (EXIF and GPS included), opened by staff only
+// through short-lived signed links.
+const ORIGINAL_BUCKET = process.env.SUPABASE_ORIGINAL_BUCKET || 'plant-photos-original';
 
-module.exports = { supabase, PHOTO_BUCKET };
+module.exports = { supabase, PHOTO_BUCKET, ORIGINAL_BUCKET };

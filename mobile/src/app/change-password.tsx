@@ -4,10 +4,16 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { api } from "../api";
+import { session } from "../session";
 import { C, F } from "../theme";
+
+// Admins and Conservation Officers need 12 characters, everyone else 8 (the backend enforces this and
+// also refuses very common passwords and ones that contain the person's name or email).
+const STRONG_ROLES = ["Admin", "Conservation Officer"];
 
 // Same as "My Account -> Change password" on the website (PATCH /api/auth/password).
 export default function ChangePassword() {
+  const minLength = STRONG_ROLES.includes(session.user?.role_name ?? "") ? 12 : 8;
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -15,11 +21,13 @@ export default function ChangePassword() {
 
   const save = async () => {
     if (!current || !next) return Alert.alert("Missing info", "Fill in your current and new password.");
-    if (next.length < 8 || next.length > 72) return Alert.alert("Too short", "The new password must be 8 to 72 characters.");
+    if (next.length < minLength || next.length > 72) return Alert.alert("Wrong length", `The new password must be ${minLength} to 72 characters.`);
     if (next !== confirm) return Alert.alert("Doesn't match", "The new passwords do not match.");
     setSaving(true);
     try {
-      await api("/api/auth/password", { method: "PATCH", body: { current_password: current, new_password: next } });
+      const data = await api<{ token?: string }>("/api/auth/password", { method: "PATCH", body: { current_password: current, new_password: next } });
+      // Changing the password ends every other login; the backend sends this one a fresh token.
+      if (data.token) session.token = data.token;
       Alert.alert("Password changed", "Use the new password next time you log in.");
       router.back();
     } catch (e: any) {
@@ -46,7 +54,7 @@ export default function ChangePassword() {
       <ScrollView contentContainerStyle={s.content}>
         {field("Current password", current, setCurrent)}
         {field("New password", next, setNext)}
-        <Text style={s.hint}>8 to 72 characters.</Text>
+        <Text style={s.hint}>{`${minLength} to 72 characters. Very common passwords are refused.`}</Text>
         {field("Confirm new password", confirm, setConfirm)}
         <Pressable style={[s.button, saving && { opacity: 0.7 }]} onPress={save} disabled={saving}>
           {saving ? <ActivityIndicator color={C.white} /> : <Text style={s.buttonText}>Change Password</Text>}

@@ -2,8 +2,9 @@
 // trusting the type the client claims. A file that says "image/png" but is
 // really HTML or an executable is refused.
 //
-// Only the file *type* is checked here. The photo itself is stored exactly as
-// uploaded: EXIF metadata (including GPS) is deliberately kept.
+// Only the file *type* is checked here. The public copy of a photo is re-encoded
+// afterwards (utils/sanitizeImage.js), which removes its EXIF metadata including GPS;
+// the untouched original is kept in a private bucket.
 
 function detectImageType(buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length < 12) {

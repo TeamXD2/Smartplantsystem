@@ -20,8 +20,9 @@ async function adminExists(db) {
   return rows.length > 0;
 }
 
-// Optional extra protection for a freshly deployed, internet-facing backend: if
-// SETUP_KEY is set in .env, the setup request has to include it.
+// Extra protection for a freshly deployed, internet-facing backend: if SETUP_KEY is set in
+// .env, the setup request has to include it. With NODE_ENV=production it is REQUIRED
+// (see createFirstAdmin); on a developer's computer it stays optional.
 function setupKeyIsValid(provided) {
   const expected = process.env.SETUP_KEY;
   if (!expected) return true;
@@ -53,6 +54,11 @@ async function createFirstAdmin(req, res) {
   try {
     if (await adminExists(pool)) {
       return res.status(409).json({ error: 'Setup is already complete' });
+    }
+    // On a production server the first-admin page stays shut unless SETUP_KEY is configured,
+    // otherwise whoever reaches a fresh server first could make themselves the Admin.
+    if (process.env.NODE_ENV === 'production' && !process.env.SETUP_KEY) {
+      return res.status(503).json({ error: 'Setup is disabled: set SETUP_KEY in the server\'s .env first (or run npm run create-admin on the server)' });
     }
     if (!setupKeyIsValid(setup_key)) {
       return res.status(403).json({ error: 'Invalid setup key' });

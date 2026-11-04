@@ -15,6 +15,11 @@ async function listPublicPlants(req, res) {
       return res.status(400).json({ error: paging.error });
     }
 
+    // A repeated ?search=a&search=b arrives as an array; only plain text is a valid search.
+    if (req.query.search !== undefined && typeof req.query.search !== 'string') {
+      return res.status(400).json({ error: 'search must be text' });
+    }
+
     const params = [];
     let searchCondition = '';
     if (req.query.search && req.query.search.trim()) {
