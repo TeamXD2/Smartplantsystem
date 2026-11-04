@@ -1,7 +1,6 @@
 const crypto = require('crypto');
 const pool = require('../config/db');
-const { logAction, logActionTx } = require('../utils/auditLog');
-const { withTransaction } = require('../utils/transaction');
+const { logAction } = require('../utils/auditLog');
 const { parsePaging } = require('../utils/listQuery');
 
 // IoT-Enabled Plant Protection (Sprint 2, proposal items 12-14).
@@ -23,55 +22,20 @@ const DEVICE_CODE = /^[A-Za-z0-9_-]{1,50}$/;
 
 // ---------- ESP32 side ----------
 
-// Every board has its OWN secret key. The database stores only the SHA-256 hash of it
-// (the key is random and 256 bits long, so a plain fast hash is enough; it is not a
-// password). A key stolen from one board therefore opens that board's identity only, and
-// an Admin can switch that one board off without touching the others.
-function hashKey(key) {
-  return crypto.createHash('sha256').update(key).digest('hex');
-}
-
-function generateDeviceKey() {
-  return `sps_${crypto.randomBytes(32).toString('hex')}`;
-}
-
-// A hash that no real key produces, compared against when the board is unknown or has no
-// key, so those cases take the same time as a wrong key and cannot be told apart.
-const NO_KEY_HASH = hashKey('no-such-device-key');
-
-// The board sends its device_code in the body and its key in the X-Device-Key header.
-// Wrong key, unknown board, board without a key: all answered with the same 401.
-// On success the board's row is available as req.sensor.
-async function requireDeviceKey(req, res, next) {
-  try {
-    const { device_code } = req.body || {};
-    if (typeof device_code !== 'string' || !DEVICE_CODE.test(device_code)) {
-      return res.status(400).json({ error: 'device_code is required (letters, numbers, - or _, max 50)' });
-    }
-    const given = String(req.get('X-Device-Key') || '');
-    if (given.length === 0 || given.length > 200) {
-      return res.status(401).json({ error: 'Invalid device credentials' });
-    }
-
-    const { rows } = await pool.query(
-      'SELECT sensor_id, name, key_hash FROM iot_sensors WHERE device_code = $1',
-      [device_code]
-    );
-    const sensor = rows[0];
-    const expected = Buffer.from(sensor && sensor.key_hash ? sensor.key_hash.trim() : NO_KEY_HASH, 'hex');
-    const matches = crypto.timingSafeEqual(Buffer.from(hashKey(given), 'hex'), expected);
-    if (!sensor || !sensor.key_hash || !matches) {
-      return res.status(401).json({ error: 'Invalid device credentials' });
-    }
-    req.sensor = { sensor_id: sensor.sensor_id, name: sensor.name, device_code };
-    next();
-  } catch (err) {
-    if (err.code === '42703') {
-      return res.status(503).json({ error: 'IoT tables are out of date: run schema.sql in Supabase again' });
-    }
-    console.error(err);
-    res.status(500).json({ error: 'Server error while checking the device key' });
+// The ESP32 proves it is ours with the X-Device-Key header (IOT_DEVICE_KEY in .env).
+// A shared key is enough for a prototype; each board could get its own key later.
+function requireDeviceKey(req, res, next) {
+  const expected = process.env.IOT_DEVICE_KEY;
+  if (!expected) {
+    return res.status(503).json({ error: 'IoT is not set up on this server (IOT_DEVICE_KEY missing in .env)' });
   }
+  const given = String(req.get('X-Device-Key') || '');
+  const a = crypto.createHash('sha256').update(given).digest();
+  const b = crypto.createHash('sha256').update(expected).digest();
+  if (!crypto.timingSafeEqual(a, b)) {
+    return res.status(401).json({ error: 'Invalid device key' });
+  }
+  next();
 }
 
 function readNumber(value, min, max) {
@@ -97,13 +61,14 @@ async function createAlertIfNew(client, sensorId, type, message, value) {
   return alert;
 }
 
-// POST /api/iot/readings  (ESP32, X-Device-Key = that board's own key)
+// POST /api/iot/readings  (ESP32, X-Device-Key)
 // Body: { device_code: "SENSOR-01", temperature_c: 29.5, humidity_pct: 78,
 //         soil_moisture_pct: 46, motion: true }   (every reading field is optional)
-// The board must already be registered by an Admin (POST /api/iot/sensors); an unknown
-// device_code is refused by requireDeviceKey and no longer creates a sensor.
 async function postReading(req, res) {
-  const { device_code } = req.sensor;
+  const { device_code } = req.body || {};
+  if (typeof device_code !== 'string' || !DEVICE_CODE.test(device_code)) {
+    return res.status(400).json({ error: 'device_code is required (letters, numbers, - or _, max 50)' });
+  }
   const temperature = readNumber(req.body.temperature_c, -40, 85);   // DHT11/22 range
   const humidity = readNumber(req.body.humidity_pct, 0, 100);
   const soil = readNumber(req.body.soil_moisture_pct, 0, 100);
@@ -115,9 +80,13 @@ async function postReading(req, res) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // First reading from a new board registers it.
     const { rows: [sensor] } = await client.query(
-      'UPDATE iot_sensors SET last_seen_at = NOW() WHERE sensor_id = $1 RETURNING sensor_id, name',
-      [req.sensor.sensor_id]
+      `INSERT INTO iot_sensors (device_code, name, last_seen_at)
+       VALUES ($1, $1, NOW())
+       ON CONFLICT (device_code) DO UPDATE SET last_seen_at = NOW()
+       RETURNING sensor_id, name`,
+      [device_code]
     );
     await client.query(
       `INSERT INTO sensor_readings (sensor_id, temperature_c, humidity_pct, soil_moisture_pct, motion)
@@ -168,7 +137,6 @@ async function listSensors(req, res) {
     const { rows } = await pool.query(
       `SELECT s.sensor_id, s.device_code, s.name, s.plant_id, p.scientific_name AS plant_name,
               s.latitude, s.longitude, s.location_note, s.created_at, s.last_seen_at,
-              (s.key_hash IS NOT NULL) AS has_key, s.key_created_at,
               r.temperature_c, r.humidity_pct, r.soil_moisture_pct, r.motion, r.recorded_at,
               (SELECT COUNT(*)::int FROM sensor_alerts a
                 WHERE a.sensor_id = s.sensor_id AND a.acknowledged_at IS NULL) AS open_alerts
@@ -237,110 +205,6 @@ async function updateSensor(req, res) {
     if (err.code === '23503') return res.status(400).json({ error: 'That plant does not exist' });
     console.error(err);
     res.status(500).json({ error: 'Server error while updating the sensor' });
-  }
-}
-
-// POST /api/iot/sensors  (Admin)
-// Registers a board and creates its own key. Body: { device_code, name?, plant_id? }
-// The key is returned ONCE in this response and is not stored (only its hash is): put it
-// in the ESP32 sketch as the X-Device-Key value. Lost it? Use rotate-key.
-async function createSensor(req, res) {
-  try {
-    const { device_code, name, plant_id } = req.body || {};
-    if (typeof device_code !== 'string' || !DEVICE_CODE.test(device_code)) {
-      return res.status(400).json({ error: 'device_code is required (letters, numbers, - or _, max 50)' });
-    }
-    if (name !== undefined && name !== null && (typeof name !== 'string' || name.trim().length > 100)) {
-      return res.status(400).json({ error: 'name must be text of at most 100 characters' });
-    }
-    if (plant_id !== undefined && plant_id !== null && !(Number.isInteger(plant_id) && plant_id > 0)) {
-      return res.status(400).json({ error: 'plant_id must be a plant id or null' });
-    }
-
-    const device_key = generateDeviceKey();
-    // The new board and its audit entry are saved together.
-    const sensor = await withTransaction(async (client) => {
-      const { rows: [created] } = await client.query(
-        `INSERT INTO iot_sensors (device_code, name, plant_id, key_hash, key_created_at)
-         VALUES ($1, $2, $3, $4, NOW())
-         RETURNING sensor_id, device_code, name, plant_id`,
-        [device_code, (name && name.trim()) || device_code, plant_id ?? null, hashKey(device_key)]
-      );
-      await logActionTx(client, {
-        user_id: req.user.user_id, action: 'CREATE_SENSOR', target_table: 'iot_sensors', target_id: created.sensor_id,
-        details: { device_code, plant_id: plant_id ?? null } // never the key
-      });
-      return created;
-    });
-    res.status(201).json({
-      sensor,
-      device_key,
-      note: 'Copy the device_key into the ESP32 sketch now. It cannot be shown again.'
-    });
-  } catch (err) {
-    if (err.code === '23505') {
-      return res.status(409).json({ error: 'A sensor with that device_code already exists' });
-    }
-    if (err.code === '23503') {
-      return res.status(400).json({ error: 'That plant does not exist' });
-    }
-    console.error(err);
-    res.status(500).json({ error: 'Server error while registering the sensor' });
-  }
-}
-
-// POST /api/iot/sensors/:id/rotate-key  (Admin)
-// Creates a new key for a board (also the way to give a key to a board that was registered
-// before per-board keys existed, or whose key was lost). The old key stops working at once.
-async function rotateSensorKey(req, res) {
-  try {
-    const device_key = generateDeviceKey();
-    const device_code = await withTransaction(async (client) => {
-      const result = await client.query(
-        'UPDATE iot_sensors SET key_hash = $1, key_created_at = NOW() WHERE sensor_id = $2 RETURNING device_code',
-        [hashKey(device_key), req.params.id]
-      );
-      if (result.rowCount === 0) return null;
-      await logActionTx(client, {
-        user_id: req.user.user_id, action: 'ROTATE_SENSOR_KEY', target_table: 'iot_sensors', target_id: req.params.id,
-        details: { device_code: result.rows[0].device_code }
-      });
-      return result.rows[0].device_code;
-    });
-    if (!device_code) return res.status(404).json({ error: 'Sensor not found' });
-    res.json({
-      device_code,
-      device_key,
-      note: 'Copy the device_key into the ESP32 sketch now. It cannot be shown again, and the old key no longer works.'
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error while creating the new key' });
-  }
-}
-
-// POST /api/iot/sensors/:id/revoke-key  (Admin)
-// Switches one board off (stolen, lost, misbehaving): its key stops working immediately and
-// it cannot send readings until rotate-key gives it a new one. Its history stays.
-async function revokeSensorKey(req, res) {
-  try {
-    const found = await withTransaction(async (client) => {
-      const result = await client.query(
-        'UPDATE iot_sensors SET key_hash = NULL, key_created_at = NULL WHERE sensor_id = $1 RETURNING device_code',
-        [req.params.id]
-      );
-      if (result.rowCount === 0) return false;
-      await logActionTx(client, {
-        user_id: req.user.user_id, action: 'REVOKE_SENSOR_KEY', target_table: 'iot_sensors', target_id: req.params.id,
-        details: { device_code: result.rows[0].device_code }
-      });
-      return true;
-    });
-    if (!found) return res.status(404).json({ error: 'Sensor not found' });
-    res.json({ message: 'Key revoked: this board can no longer send readings' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error while revoking the key' });
   }
 }
 
@@ -443,7 +307,4 @@ async function acknowledgeAlert(req, res) {
   }
 }
 
-module.exports = {
-  requireDeviceKey, postReading, listSensors, updateSensor, listReadings, listAlerts, acknowledgeAlert,
-  createSensor, rotateSensorKey, revokeSensorKey
-};
+module.exports = { requireDeviceKey, postReading, listSensors, updateSensor, listReadings, listAlerts, acknowledgeAlert };

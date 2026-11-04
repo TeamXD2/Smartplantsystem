@@ -213,12 +213,7 @@ CREATE TABLE IF NOT EXISTS iot_sensors (
     longitude      DECIMAL(10,7),
     location_note  VARCHAR(150),
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_seen_at   TIMESTAMPTZ,
-    -- Each board has its own secret key. Only its SHA-256 hash is stored (the key itself
-    -- is shown once, when an Admin registers or rotates it). NULL = the board is not
-    -- allowed to send readings.
-    key_hash       CHAR(64),
-    key_created_at TIMESTAMPTZ
+    last_seen_at   TIMESTAMPTZ
 );
 
 -- Every reading a board sends (temperature, humidity, soil moisture, PIR motion).
@@ -255,9 +250,7 @@ ALTER TABLE iot_sensors
     ADD COLUMN IF NOT EXISTS longitude     DECIMAL(10,7),
     ADD COLUMN IF NOT EXISTS location_note VARCHAR(150),
     ADD COLUMN IF NOT EXISTS created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    ADD COLUMN IF NOT EXISTS last_seen_at  TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS key_hash       CHAR(64),
-    ADD COLUMN IF NOT EXISTS key_created_at TIMESTAMPTZ;
+    ADD COLUMN IF NOT EXISTS last_seen_at  TIMESTAMPTZ;
 ALTER TABLE sensor_readings
     ADD COLUMN IF NOT EXISTS temperature_c NUMERIC(5,2),
     ADD COLUMN IF NOT EXISTS humidity_pct  NUMERIC(5,2),
@@ -295,7 +288,6 @@ END $$;
 
 -- Needed: the backend registers boards with INSERT ... ON CONFLICT (device_code).
 CREATE UNIQUE INDEX IF NOT EXISTS iot_sensors_device_code_key ON iot_sensors (device_code);
-CREATE UNIQUE INDEX IF NOT EXISTS iot_sensors_key_hash_key ON iot_sensors (key_hash) WHERE key_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS iot_sensors_plant_id_idx ON iot_sensors (plant_id);                           -- deleting a plant
 CREATE INDEX IF NOT EXISTS sensor_readings_sensor_time_idx ON sensor_readings (sensor_id, recorded_at DESC);  -- latest reading, charts, stats
 CREATE INDEX IF NOT EXISTS sensor_alerts_cooldown_idx ON sensor_alerts (sensor_id, alert_type, created_at DESC); -- "same alert recently?" check

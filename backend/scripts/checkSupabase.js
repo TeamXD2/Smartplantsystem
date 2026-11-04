@@ -123,18 +123,6 @@ async function checkDatabase() {
       }
     }
 
-    // IoT boards need their own key, otherwise they cannot send readings.
-    if (found.iot_sensors && found.iot_sensors.columns.includes('key_hash')) {
-      const { rows: [sensors] } = await client.query(
-        'SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE key_hash IS NULL)::int AS without_key FROM iot_sensors'
-      );
-      if (sensors.without_key > 0) {
-        bad(`${sensors.without_key} of ${sensors.total} sensor(s) have no device key - an Admin must create one (POST /api/iot/sensors/:id/rotate-key)`);
-      } else if (sensors.total > 0) {
-        ok(`All ${sensors.total} sensor(s) have their own device key`);
-      }
-    }
-
     // Accounts made with Supabase Auth (not used by this backend)
     const { rows: [authUsers] } = await client.query(
       `SELECT COUNT(*)::int AS n FROM auth.users`
