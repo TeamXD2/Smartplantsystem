@@ -43,7 +43,7 @@ The project has three applications that share one database:
       +--> Supabase Storage: plant photos
 ```
 
-The backend is the only gateway to the data. For every request it checks who the user is, whether their role allows the action, and whether the data is valid. The web app and the mobile app talk to the backend and hold no Supabase keys. Each sensor board authenticates with its own device key instead of a login. Row Level Security is switched on for every table with no policies, so a Supabase key cannot read the tables directly either.
+The backend is the only gateway to the data. For every request it checks who the user is, whether their role allows the action, and whether the data is valid. The web app and the mobile app talk to the backend and hold no Supabase keys. The sensor boards authenticate with a shared device key instead of a login. Row Level Security is switched on for every table with no policies, so a Supabase key cannot read the tables directly either.
 
 The whole team shares one Supabase project (SPS), so everyone sees the same data.
 
@@ -72,7 +72,7 @@ You need Node.js 20.19 or newer (the backend needs 20.9 or newer because of the 
    ```
    npm run check-supabase
    ```
-   The check covers the Sprint 1 tables, the Row Level Security setting, the public photo bucket and the private originals bucket (it must exist and must not be public). It also warns about photos that still have no private original and sensor boards that have no device key. It does not check the other IoT columns.
+   The check covers the Sprint 1 tables, the Row Level Security setting, the public photo bucket and the private originals bucket (it must exist and must not be public). It also warns about photos that still have no private original. It does not check the other IoT columns.
 5. Start the server:
    ```
    npm run dev
@@ -141,6 +141,7 @@ The collection covers the Sprint 1 flows: login and accounts, plants, editing an
 | `TRUST_PROXY` | Needed only when the backend runs behind a proxy or hosting platform. Set it to the number of proxies in front of the backend, usually `1`, so the rate limits count each visitor separately |
 | `LOGIN_FAILS_PER_IP`, `LOGIN_FAILS_PER_ACCOUNT`, `LOGIN_LOCK_MINUTES` | Optional. The login lockout (see Security). Defaults: 5 failures per email and IP address, 20 per email from anywhere, within 15 minutes |
 | `SETUP_KEY` | Protects the one-time setup page (see "First administrator"). Optional on your own computer, required when `NODE_ENV=production` |
+| `IOT_DEVICE_KEY` | Secret the ESP32 boards send in the `X-Device-Key` header. While it is empty, the readings endpoint answers 503 |
 | `IOT_TEMP_MAX`, `IOT_HUMIDITY_MIN`, `IOT_SOIL_MIN` | Optional alert limits: a temperature above `IOT_TEMP_MAX` (default 35), or humidity below `IOT_HUMIDITY_MIN` (default 40) or soil moisture below `IOT_SOIL_MIN` (default 20), raises an alert |
 | `DB_SSL_CA` | Optional but recommended. Turns on verification of the database's TLS certificate (see below) |
 | `DB_SSL` | Set to `false` to turn TLS off, only for a local Postgres |
@@ -178,7 +179,6 @@ There are three roles. Botanists are either Internal or External. Park visitors 
 | Publish a plant to visitors | No | No | No | Yes | Yes |
 | Export reports and the species list as CSV (web app) | No | No | No | Yes | Yes |
 | View IoT sensors and readings, acknowledge alerts, edit sensors | No | No | No | Yes | Yes |
-| Register sensor boards and manage their keys | No | No | No | No | Yes |
 | Change your own password | No | Yes | Yes | Yes | Yes |
 | Create, change and deactivate accounts | No | No | No | No | Yes |
 | Set a temporary password for another account | No | No | No | No | Yes |
@@ -280,9 +280,9 @@ ESP32 boards in the park send temperature, humidity, soil moisture and motion (P
 
 How a board talks to the backend:
 
-1. An administrator registers the board with `POST /api/iot/sensors` and `{ "device_code": "SENSOR-01", "name": "Pitcher plant 1" }`. The response contains that board's own `device_key` (it starts with `sps_`). It is shown once and only its hash is stored, so copy it into the ESP32 sketch straight away. If you lose the key, or the board was registered before per-board keys existed, `POST /api/iot/sensors/:id/rotate-key` makes a new one and the old one stops working at once.
-2. The board sends `POST /api/iot/readings` with its key in the header `X-Device-Key` and a JSON body that contains its `device_code` (see the example below). Only `device_code` is required. The other fields can be left out when the board has no such sensor. A board that is not registered, has no key or sends the wrong key gets the same 401.
-3. A board can no longer register itself: an unknown `device_code` is refused. An officer or admin can rename a registered board, give it a GPS position and a note, and link it to the plant it protects. If a board is stolen or misbehaves, an administrator switches only that board off with `POST /api/iot/sensors/:id/revoke-key`.
+1. Choose a long random value for `IOT_DEVICE_KEY` in `backend/.env`, restart the backend, and put the same value in the ESP32 sketch.
+2. The board sends `POST /api/iot/readings` with the header `X-Device-Key` and a JSON body (see the example below). Only `device_code` is required. The other fields can be left out when the board has no such sensor.
+3. The first reading from a new `device_code` registers the board as a sensor. Its name starts as the device code. An officer or admin can rename it later, give it a GPS position and a note, and link it to the plant it protects.
 4. The response says whether an alert was raised (`"alert": true`), so the board can sound its buzzer.
 
 An alert is raised for movement, a temperature above `IOT_TEMP_MAX`, humidity below `IOT_HUMIDITY_MIN` and soil moisture below `IOT_SOIL_MIN`. The same kind of alert is not repeated for a sensor within 1 minute for motion, or within 10 minutes for the other types, so a person standing in front of the sensor creates one alert. Readings must be in range: temperature from -40 to 85, humidity and soil moisture from 0 to 100.
@@ -297,7 +297,7 @@ The structure is defined in `schema.sql` in the repository root. One file covers
 
 - Sprint 1: accounts, plants, plant versions, photos, change requests, assignments and the audit log.
 - Sprint 2: sensors, readings and alerts.
-- Security: the session version on accounts, login failures, per-board sensor keys, the audit log's IP address and device columns with its append-only trigger, and the private originals bucket.
+- Security: the session version on accounts, login failures, the audit log's IP address and device columns with its append-only trigger, and the private originals bucket.
 - The public `plant-photos` Storage bucket (5 MB limit, JPEG, PNG and WebP) with the metadata-free photo copies, and the private `plant-photos-original` bucket with the untouched uploads.
 - Row Level Security on every table, and the indexes the backend's queries use.
 
@@ -318,7 +318,7 @@ Please do not create, change or delete tables in the Supabase dashboard. If the 
 | `plant_versions` | A full copy of a plant's editable fields after each registration, edit or approved edit request |
 | `audit_logs` | Every action (registered, edited, photo uploaded, approved and so on). The plant history is built from it |
 | `login_failures` | Failed login attempts, kept for a day so the backend can lock an email after repeated wrong passwords. Never returned by the API |
-| `iot_sensors` | One row per ESP32 board: device code, name, position, the plant it protects, the hash of its key and when it last reported |
+| `iot_sensors` | One row per ESP32 board: device code, name, position, the plant it protects and when it last reported |
 | `sensor_readings` | Every reading a board sends |
 | `sensor_alerts` | Alerts raised from readings, and who acknowledged them |
 
@@ -418,14 +418,14 @@ The plant history endpoint (`GET /api/plants/:id/history`) reads the rows for pl
 |---|---|
 | `log_id` | |
 | `user_id` | Who did it. The history adds `user_name` and `role_name`, and the audit log adds `user_name` and `user_email` |
-| `action` | `CREATE_PLANT`, `UPDATE_PLANT`, `UPLOAD_PHOTO`, `UPDATE_VISIBILITY`, `DELETE_PLANT`, `REQUEST_EDIT`, `REQUEST_DELETE`, `APPROVED_REQUEST`, `REJECTED_REQUEST`, `CREATE_USER`, `UPDATE_USER`, `CHANGE_PASSWORD`, `PASSWORD_CHECK_FAILED`, `LOGIN_FAILED`, `LOGIN_BLOCKED`, `RESET_PASSWORD`, `LOGOUT_ALL`, `VIEW_ORIGINAL_PHOTO`, `CREATE_SENSOR`, `ROTATE_SENSOR_KEY`, `REVOKE_SENSOR_KEY`, `UPDATE_SENSOR`, `ACKNOWLEDGE_ALERT`, `LOGIN` |
+| `action` | `CREATE_PLANT`, `UPDATE_PLANT`, `UPLOAD_PHOTO`, `UPDATE_VISIBILITY`, `DELETE_PLANT`, `REQUEST_EDIT`, `REQUEST_DELETE`, `APPROVED_REQUEST`, `REJECTED_REQUEST`, `CREATE_USER`, `UPDATE_USER`, `CHANGE_PASSWORD`, `PASSWORD_CHECK_FAILED`, `LOGIN_FAILED`, `LOGIN_BLOCKED`, `RESET_PASSWORD`, `LOGOUT_ALL`, `VIEW_ORIGINAL_PHOTO`, `UPDATE_SENSOR`, `ACKNOWLEDGE_ALERT`, `LOGIN` |
 | `target_table`, `target_id` | What the action was done to, for example `plants` and `12` |
 | `details` | Extra information as JSON, such as the old and new values of an edit |
 | `created_at` | date |
 | `ip_address`, `user_agent` | Internal. The caller's IP address and device (browser or app) for the request that caused the entry. Stored for investigations and not returned by the API. Empty for entries made outside a request |
 | `summary` | Added by the history endpoint: a ready-to-show sentence |
 
-The table is append-only: a database trigger refuses every `UPDATE` and `DELETE`, so history cannot be rewritten afterwards. Password changes and resets, account updates, "sign out everywhere", sensor key actions, and plant, photo and request actions are saved in the same database transaction as the change itself, so none of them can happen without leaving an entry. If the entry cannot be written, the change is rolled back.
+The table is append-only: a database trigger refuses every `UPDATE` and `DELETE`, so history cannot be rewritten afterwards. Password changes and resets, account updates, "sign out everywhere", and plant, photo and request actions are saved in the same database transaction as the change itself, so none of them can happen without leaving an entry. If the entry cannot be written, the change is rolled back.
 
 Failed logins are recorded too. `LOGIN_FAILED` has the reason (`wrong_password` or `unknown_email`) and the email, or `(not an email)` when the text typed in the email box is not an address, so a password typed into the wrong box is never written down. `LOGIN_BLOCKED` records a refused attempt and which limit was hit, and `PASSWORD_CHECK_FAILED` a wrong current password on the change-password form.
 
@@ -449,10 +449,9 @@ Internal table that the login lockout reads. It gets one row for every wrong pas
 | `name` | Max 100. Starts as the device code |
 | `plant_id` | The plant the board protects. `null` if none, or if that plant was deleted |
 | `latitude`, `longitude`, `location_note` | Where the board stands. The note is max 150 characters |
-| `created_at`, `last_seen_at` | When the board was registered and when it last sent a reading |
-| `key_hash`, `key_created_at` | Internal. The SHA-256 hash of the board's own key, and when the key was made. `null` means the board may not send readings. Never returned; the sensor list only says `has_key` |
+| `created_at`, `last_seen_at` | When the board registered and when it last sent a reading |
 
-The sensor list adds `plant_name`, `has_key`, the latest reading and `open_alerts`.
+The sensor list adds `plant_name`, the latest reading and `open_alerts`.
 
 ### sensor_readings
 
@@ -555,7 +554,7 @@ The web app sends the header `X-Auth-Mode: cookie` with the login. The backend t
 
 ## API reference
 
-All routes except login, logout, setup, the public routes and the sensor readings route need `Authorization: Bearer <token>` (or, for the web app, the login cookie described under "Logging in"). The sensor readings route needs the board's own key in the `X-Device-Key` header, and its `device_code` in the body, instead.
+All routes except login, logout, setup, the public routes and the sensor readings route need `Authorization: Bearer <token>` (or, for the web app, the login cookie described under "Logging in"). The sensor readings route needs the `X-Device-Key` header instead.
 
 ### Setup
 
@@ -620,10 +619,7 @@ All routes except login, logout, setup, the public routes and the sensor reading
 
 | Method | URL | Who | What it does |
 |---|---|---|---|
-| POST | `/api/iot/readings` | ESP32 board (its own `X-Device-Key`) | Store a reading and raise alerts. The board must be registered; an unknown board or a wrong key gets 401. Limited to 120 requests per minute per IP |
-| POST | `/api/iot/sensors` | Admin | Register a board from `{ device_code, name?, plant_id? }`. The response contains its `device_key`, shown only this once |
-| POST | `/api/iot/sensors/:id/rotate-key` | Admin | Make a new key for a board (the old one stops working at once). The new `device_key` is shown only once |
-| POST | `/api/iot/sensors/:id/revoke-key` | Admin | Switch a board off: it cannot send readings until it gets a new key |
+| POST | `/api/iot/readings` | ESP32 board (`X-Device-Key`) | Store a reading, register the board if it is new, and raise alerts. Limited to 120 requests per minute per IP |
 | GET | `/api/iot/sensors` | Officer, Admin | Every sensor with its latest reading and open alert count, plus the alert limits in use |
 | PATCH | `/api/iot/sensors/:id` | Officer, Admin | Change `name`, `location_note`, `latitude`, `longitude` or `plant_id` |
 | GET | `/api/iot/readings?sensor_id=&hours=24` | Officer, Admin | Readings for charts, averaged into at most about 300 points, with minimum, maximum and average values and a movement count. `hours` is 1 to 744 |
@@ -706,7 +702,7 @@ Change your own password:
 { "current_password": "...", "new_password": "..." }
 ```
 
-A sensor reading from an ESP32 (header `X-Device-Key: <that board's own key>`). Only `device_code` is required:
+A sensor reading from an ESP32 (header `X-Device-Key: <IOT_DEVICE_KEY>`). Only `device_code` is required:
 
 ```json
 { "device_code": "SENSOR-01", "temperature_c": 29.5, "humidity_pct": 78, "soil_moisture_pct": 46, "motion": true }
@@ -720,14 +716,14 @@ The answer has status 201: `{ "ok": true, "sensor_id": 1, "alert": true, "alerts
 - The setup endpoints stop working as soon as an administrator exists, a simultaneous double submission creates only one administrator, and `SETUP_KEY` restricts the first setup (required in production, where the endpoint answers 503 without it).
 - Security headers come from `helmet`: a Content-Security-Policy that forbids loading anything from API responses, no framing, `nosniff`, no referrer, `Cache-Control: no-store`, no `X-Powered-By`, and HSTS in production.
 - Dependencies are checked with `npm audit`. `npm audit --omit=dev` reports no vulnerabilities for the backend and the web app. The backend's `nodemon`, a tool used only during development, has one moderate advisory with no patched version yet. The mobile app still has 17 advisories, almost all in Expo's build tools rather than in the app itself, and most of them go away only with the move from Expo SDK 57 to 58.
-- The audit history is append-only (database trigger), records the IP address and device of each action, and is written in the same transaction as the change for account, session, sensor-key, plant, photo and request actions. If the entry cannot be saved, the change is rolled back and the request fails with 500, so none of those actions can happen without a record. Photo files are stored before the database step, so a failed upload removes them again. Opening a private original only returns the link once the opening is recorded. Logins, failed logins, setup and sensor alert acknowledgements are still logged right after the fact, so a problem with the log can never lock everyone out.
+- The audit history is append-only (database trigger), records the IP address and device of each action, and is written in the same transaction as the change for account, session, plant, photo and request actions. If the entry cannot be saved, the change is rolled back and the request fails with 500, so none of those actions can happen without a record. Photo files are stored before the database step, so a failed upload removes them again. Opening a private original only returns the link once the opening is recorded. Logins, failed logins, setup and sensor alert acknowledgements are still logged right after the fact, so a problem with the log can never lock everyone out.
 - Login tokens accept only the HS256 algorithm and last 12 hours by default. Roles are read from the database on every request. Every token carries the account's `token_version`, which is raised on a password change or reset, a deactivation, a role change and "sign out everywhere", so a stolen token stops working as soon as the owner changes their password and a reactivated account never gets its old tokens back.
 - Logins take about the same time for unknown emails and wrong passwords, and a deactivated account is revealed only to someone who knows the password.
 - Login lockout: a wrong password is remembered for 15 minutes. After 5 failures for the same email from the same IP address, or 20 from anywhere, logins for that email are refused with 429 and a `Retry-After` header, even with the right password. The answer is the same for an email that does not exist, and emails are stored only as hashes. Someone who knows an email address cannot lock the owner out by failing from one place, because the owner's own IP address has a separate count. A wrong current password on the change-password form counts too. Failed and blocked attempts go into the audit log.
 - Password rules: Admins and Conservation Officers need at least 12 characters and everyone else at least 8, up to 72. A password is refused when it is one of the 100,000 most common ones (also with digits or symbols added at the end, so `Password123!` counts as `password`), when it contains the person's email or a name part of four or more letters, or when it has fewer than four different characters. The list is a file in the backend, so nothing is sent to an outside service. Existing passwords are not re-checked.
 - Rate limits: 10 wrong passwords per 15 minutes on login and on password changes (they share one limit), 10 setup attempts per 15 minutes, 120 requests per minute per IP on the public and setup endpoints, and 120 sensor readings per minute per IP. JSON bodies are limited to 100 KB.
-- Every sensor board has its own key in the `X-Device-Key` header. Only the SHA-256 hash is stored, the key is shown once when an administrator registers or rotates it, and the comparison is constant time. A board that is unknown, has no key or sends a wrong key gets the same 401, boards cannot register themselves, and an administrator can switch off one stolen board without touching the others. Keep the keys out of the repository.
 - Administrators cannot deactivate or change their own account, so one active administrator always remains. A temporary password set by an administrator is for the account owner to replace with their own.
+- Sensor boards prove themselves with the `X-Device-Key` header. The backend compares it in constant time and refuses all readings while `IOT_DEVICE_KEY` is empty. One key is shared by every board, so keep it out of the repository.
 - Browsers can call the API only from the addresses in `CORS_ORIGINS`.
 - The web app's login lives in an httpOnly cookie (`SameSite=Strict` by default, `Secure` in production), so a script running in the page cannot read the token. Because a browser sends cookies by itself, every cookie-authenticated request that changes data also needs the `X-CSRF-Token` header, which is a keyed hash of the session token, and a browser `Origin` outside `CORS_ORIGINS` is refused. Bearer clients are unaffected. A rejected cookie session is removed from the browser. Logging out in the browser removes the cookies only; "sign out everywhere" ends the token itself.
 - The web app keeps no token in `localStorage`, and deletes a leftover one when the page loads. The mobile app keeps its token in memory only.
@@ -737,14 +733,13 @@ The answer has status 201: `{ "ok": true, "sensor_id": 1, "alert": true, "alerts
 
 ### Upgrading a running deployment
 
-These steps bring an existing backend up to date with session revocation, private photo originals, per-board sensor keys and the audit log changes:
+These steps bring an existing backend up to date with session revocation, private photo originals and the audit log changes:
 
-1. Run `schema.sql` again in the Supabase SQL Editor. It adds `users.token_version`, `plant_photos.original_path`, the sensor key columns, the audit log's `ip_address` and `user_agent` columns, the append-only trigger on `audit_logs`, the `login_failures` table and the private `plant-photos-original` bucket. It changes no existing data. Do this before starting the new backend.
+1. Run `schema.sql` again in the Supabase SQL Editor. It adds `users.token_version`, `plant_photos.original_path`, the audit log's `ip_address` and `user_agent` columns, the append-only trigger on `audit_logs`, the `login_failures` table and the private `plant-photos-original` bucket. It changes no existing data. Do this before starting the new backend.
 2. In `backend`, run `npm install` (it adds `sharp` and `helmet` and upgrades `bcrypt` to 6 and `multer` to 2) and restart. Run `npm install` in `webapp` too, to get the patched build tool. Both need Node.js 20.19 or newer. If `backend/.env` sets `JWT_EXPIRES_IN=7d`, change or remove it. Everyone has to log in again once their old token expires.
 3. Run `npm run sanitize-photos -- --dry-run` to see what would change, then `npm run sanitize-photos`. It keeps each existing photo as a private original and replaces the public file with a clean copy at the same address. Supabase caches public files, so the old version can still be served for up to about an hour, and anyone who already saved a photo keeps its GPS.
-4. For each sensor board, an administrator calls `POST /api/iot/sensors/:id/rotate-key` (or `POST /api/iot/sensors` for a new board), puts the returned key in that board's sketch as `X-Device-Key`, and reflashes it. Boards keep sending the old shared key until then and get 401. The `IOT_DEVICE_KEY` setting is no longer used and can be deleted from `.env`.
-5. Run `npm run check-supabase`. Every line should say `OK`.
-6. Everyone who uses the web app logs in once more: it now keeps its login in an httpOnly cookie instead of `localStorage`. Open the web app and the backend with the same host name (for example both on `localhost`), and keep the web app's exact address in `CORS_ORIGINS`. The mobile app, Postman and the sensor boards need no change.
+4. Run `npm run check-supabase`. Every line should say `OK`.
+5. Everyone who uses the web app logs in once more: it now keeps its login in an httpOnly cookie instead of `localStorage`. Open the web app and the backend with the same host name (for example both on `localhost`), and keep the web app's exact address in `CORS_ORIGINS`. The mobile app, Postman and the sensor boards need no change.
 
 Existing passwords keep working. The new password rules apply the next time a password is set, so an Officer or Admin whose password has fewer than 12 characters is not locked out, but cannot choose such a password again. If you run the Postman collection, replace the old `testPassword` value with the one in the updated collection.
 
@@ -765,7 +760,7 @@ Existing passwords keep working. The new password rules apply the next time a pa
 | `utils/plantChanges.js` | Applies edits and records old and new values |
 | `utils/plantVersions.js` | Saves a full copy of a plant as its next version, inside the change's own transaction |
 | `utils/publicView.js` | Decides which plant fields visitors see, and builds the public views |
-| `utils/auditLog.js` | Writes the history records: `logActionTx` inside the change's own transaction (plants, photos, requests, accounts, sessions, sensor keys), `logAction` after the fact for logins, setup and alert acknowledgements |
+| `utils/auditLog.js` | Writes the history records: `logActionTx` inside the change's own transaction (plants, photos, requests, accounts, sessions), `logAction` after the fact for logins, setup and alert acknowledgements |
 | `utils/transaction.js` | Runs a function in one database transaction |
 | `utils/qrcode.js` | Generates QR codes |
 | `utils/imageType.js` | Checks that an uploaded photo really is a JPEG, PNG or WebP |
@@ -803,7 +798,8 @@ Existing passwords keep working. The new password rules apply the next time a pa
 | "Too many login attempts" | There were 10 wrong passwords within 15 minutes (a wrong current password on the change-password form counts too). Wait, or restart the backend |
 | "Too many requests, please slow down" | The public endpoints allow 120 requests per minute per IP. Wait a minute |
 | The IoT page says the IoT tables are missing or out of date | Run `schema.sql` from the repository root in the Supabase SQL Editor. It is safe to run again |
-| A sensor board gets 401 "Invalid device credentials" | The board is not registered, its key was revoked or rotated, or the `device_code` or `X-Device-Key` in the sketch is wrong. An administrator can issue a new key with `POST /api/iot/sensors/:id/rotate-key` |
+| A sensor board gets 503 "IoT is not set up on this server" | `IOT_DEVICE_KEY` is empty in `backend/.env`. Set it and restart the backend |
+| A sensor board gets 401 "Invalid device key" | The `X-Device-Key` in the sketch differs from `IOT_DEVICE_KEY` |
 | The web app logs in but is signed out again straight away, or every request answers 401 | The browser is not sending the login cookie. Open the web app and the backend with the same host name, for example `http://localhost:5173` with `VITE_API_URL=http://localhost:5000`, not `127.0.0.1` for one and `localhost` for the other, and make sure the web app's exact address is in `CORS_ORIGINS`. For a web app on a different site than the backend, set `COOKIE_SAMESITE=none` and use HTTPS |
 | Saving something in the web app fails with 403 "Security check failed (CSRF)" | The page lost its CSRF cookie or has an old session. Reload the page; if it persists, log out and in again. Requests from a script or Postman should use `Authorization: Bearer <token>` instead of cookies |
 | Everyone gets 401 "Your session has ended" after a password change | Expected: a password change or reset ends every older login. Log in again |
@@ -866,7 +862,6 @@ Existing passwords keep working. The new password rules apply the next time a pa
 - The web app signs in with a cookie instead of a token in `localStorage` (see "Logging in"). Everyone has to log in on the web once after the upgrade. The web app and the backend must be opened with the same host name (`localhost` for both, not `127.0.0.1` for one of them). The mobile app, Postman and the sensor boards are not affected.
 - `GET /api/plants` and `GET /api/public/plants` answer 400 "search must be text" for a repeated or non-text `?search=` (they used to answer 500).
 - Plant, photo and request actions are saved together with their audit entry. If the entry cannot be written the request now fails with 500 and nothing changes (before, the change stayed and only the log line was lost).
-- Sensor boards need their own key: `IOT_DEVICE_KEY` is no longer used, boards can no longer register themselves, and each board must be registered by an administrator before it can send readings.
 - Photos from the public endpoints have no EXIF metadata, so GPS can no longer be read from them.
 - A file that is not really a JPEG, PNG or WebP image is refused with 400, even when it is renamed or sent with an image content type.
 - An invalid `status` filter on the request lists returns 400.
@@ -892,7 +887,7 @@ The first version was an offline app with a local SQLite database, a placeholder
 ## Not built yet
 
 - Offline use and sync in the mobile app. It needs a connection for every screen.
-- A screen in the web app for registering sensor boards and managing their keys. For now an administrator uses the API.
+- A separate key for each sensor board. All boards share `IOT_DEVICE_KEY`.
 - Two-factor login, a forced password change after an administrator's reset, and reading retention for the sensor data.
 - Upgrading the mobile app to Expo SDK 58, which clears most of its remaining npm advisories. It needs testing on a phone.
 - Writing the remaining audit entries (logins, failed logins, first-administrator setup and sensor alert acknowledgements) in the same transaction as the action. They stay best-effort on purpose for now.

@@ -11,7 +11,7 @@ import LineChart from './LineChart';
 import Field from './ui/Field';
 import EmptyState from './ui/EmptyState';
 import { RowCheck } from './table/TableParts';
-import { SkeletonStats, SkeletonBlock } from './ui/Skeleton';
+import { Skeleton, SkeletonStats, SkeletonBlock } from './ui/Skeleton';
 
 // Centralised IoT monitoring dashboard (proposal item 14) for Officers and Admins:
 // live sensor cards, a chart with min/avg/max (habitat analysis), and the alert
