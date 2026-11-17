@@ -6,8 +6,6 @@ import { useLocalSearchParams, router } from "expo-router";
 import { api, PublicPlant } from "../api";
 import { C, F } from "../theme";
 
-// Public plant page for visitors - the same information as the website's
-// species page (GET /api/public/plants/qr/:qr). Unpublished plants are "not found".
 export default function Species() {
   const { qr } = useLocalSearchParams<{ qr: string }>();
   const [plant, setPlant] = useState<PublicPlant | null>(null);
@@ -51,67 +49,71 @@ export default function Species() {
   const width = num(plant.width_cm);
   const lat = num(plant.latitude);
   const lng = num(plant.longitude);
-  const rows: [string, string][] = [
-    ["Family", plant.family || "—"],
-    ["Genus / species", [plant.genus, plant.species].filter(Boolean).join(" ") || "—"],
-    ["Conservation status", plant.conservation_status || "Not assessed"],
-    ["Height", height != null ? `${height} cm` : "—"],
-    ["Width", width != null ? `${width} cm` : "—"],
-  ];
-  const sections: [string, string | null | undefined][] = [
+  const details = ([
+    ["Family", plant.family],
+    ["Genus", plant.genus],
+    ["Species", plant.species],
+    ["Conservation status", plant.conservation_status],
+    ["Height", height != null ? `${height} cm` : null],
+    ["Width", width != null ? `${width} cm` : null],
+  ] as [string, string | null | undefined][]).filter(([, value]) => !!value);
+  const sections = ([
     ["Appearance", plant.morphological_notes],
     ["Ecological role", plant.ecological_role],
     ["Medicinal use", plant.medicinal_use],
     ["Cultural significance", plant.cultural_significance],
-  ];
+  ] as [string, string | null | undefined][]).filter(([, text]) => !!text);
   const photos = plant.photos || [];
+  const place =
+    lat != null && lng != null
+      ? `Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)}`
+      : plant.general_location || "Location hidden to protect this species";
 
   return (
     <SafeAreaView style={s.safe}>
       {header}
       <ScrollView contentContainerStyle={s.content}>
-        {photos.length > 0 ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
-            {photos.map((p) => (
-              <Image key={p.photo_id} source={{ uri: p.photo_url }} style={[s.photo, { width: photos.length > 1 ? 280 : 342 }]} />
-            ))}
-          </ScrollView>
-        ) : (
-          <View style={[s.photo, s.photoEmpty]}><Ionicons name="leaf-outline" size={36} color={C.green} /></View>
-        )}
+        <View>
+          {photos.length > 1 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+              {photos.map((p) => (
+                <Image key={p.photo_id} source={{ uri: p.photo_url }} style={[s.photo, { width: 300 }]} />
+              ))}
+            </ScrollView>
+          ) : photos.length === 1 ? (
+            <Image source={{ uri: photos[0].photo_url }} style={[s.photo, { width: "100%" }]} />
+          ) : (
+            <View style={[s.photo, s.photoEmpty]}><Ionicons name="leaf-outline" size={36} color={C.green} /></View>
+          )}
+          <Text style={s.qr}>{plant.qr_code}</Text>
+        </View>
 
         <View>
           <Text style={s.name}>{plant.common_name || plant.scientific_name}</Text>
           {!!plant.common_name && <Text style={s.sci}>{plant.scientific_name}</Text>}
         </View>
 
-        <View style={s.card}>
-          {rows.map(([label, value], i) => (
-            <View key={label} style={[s.row, i < rows.length - 1 && s.rowLine]}>
-              <Text style={s.rowLabel}>{label}</Text>
-              <Text style={s.rowValue}>{value}</Text>
-            </View>
-          ))}
-        </View>
+        {details.length > 0 && (
+          <View style={s.card}>
+            {details.map(([label, value], i) => (
+              <View key={label} style={[s.row, i < details.length - 1 && s.rowLine]}>
+                <Text style={s.rowLabel}>{label}</Text>
+                <Text style={s.rowValue}>{value}</Text>
+              </View>
+            ))}
+          </View>
+        )}
 
-        {sections.filter(([, text]) => !!text).map(([title, text]) => (
-          <View key={title} style={s.card}>
-            <Text style={s.cardTitle}>{title}</Text>
+        {sections.map(([title, text]) => (
+          <View key={title}>
+            <Text style={s.sectionTitle}>{title}</Text>
             <Text style={s.body}>{text}</Text>
           </View>
         ))}
 
-        {/* Location only as much as the Officer allowed (Public / Approximate / Hidden) */}
-        <View style={s.card}>
-          <Text style={s.cardTitle}>Location</Text>
-          <View style={s.gpsRow}>
-            <Ionicons name="location-outline" size={18} color={C.green} />
-            <Text style={s.body}>
-              {lat != null && lng != null
-                ? `Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)}`
-                : plant.general_location || "Hidden to protect this species"}
-            </Text>
-          </View>
+        <View style={s.gpsRow}>
+          <Ionicons name="location-outline" size={18} color={C.text} />
+          <Text style={s.place}>{place}</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -125,17 +127,19 @@ const s = StyleSheet.create({
   headerTitle: { fontFamily: F.title, fontSize: 22, color: C.text },
   centerBox: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, padding: 24 },
   errorText: { fontFamily: F.semi, fontSize: 15, color: C.text, textAlign: "center" },
-  content: { paddingHorizontal: 24, paddingBottom: 40, gap: 14 },
-  photo: { height: 220, borderRadius: 16, backgroundColor: C.greenSoft },
+  content: { paddingHorizontal: 20, paddingBottom: 40, gap: 18 },
+  photo: { height: 240, borderRadius: 16, backgroundColor: C.greenSoft },
   photoEmpty: { width: "100%", alignItems: "center", justifyContent: "center" },
-  name: { fontFamily: F.title, fontSize: 24, color: C.text },
-  sci: { fontFamily: F.body, fontSize: 15, color: C.muted, fontStyle: "italic", marginTop: 2 },
-  card: { backgroundColor: C.white, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: C.line },
-  cardTitle: { fontFamily: F.semi, fontSize: 14, color: C.text, marginBottom: 8 },
-  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 10 },
+  qr: { position: "absolute", top: 10, right: 10, fontFamily: "monospace", fontSize: 12, color: C.green, backgroundColor: "rgba(255,255,255,0.9)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, overflow: "hidden" },
+  name: { fontFamily: F.title, fontSize: 28, color: C.text },
+  sci: { fontFamily: F.body, fontSize: 16, color: C.muted, fontStyle: "italic", marginTop: 4 },
+  card: { backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.line },
+  row: { paddingVertical: 12, paddingHorizontal: 16, gap: 3 },
   rowLine: { borderBottomWidth: 1, borderBottomColor: C.line },
-  rowLabel: { fontFamily: F.body, fontSize: 14, color: C.muted },
-  rowValue: { fontFamily: F.semi, fontSize: 14, color: C.text, flexShrink: 1, textAlign: "right", marginLeft: 12 },
-  body: { fontFamily: F.body, fontSize: 14, color: C.text, lineHeight: 20, flexShrink: 1 },
+  rowLabel: { fontFamily: F.body, fontSize: 12, color: C.muted },
+  rowValue: { fontFamily: F.semi, fontSize: 15, color: C.text },
+  sectionTitle: { fontFamily: F.semi, fontSize: 15, color: C.text, marginBottom: 4 },
+  body: { fontFamily: F.body, fontSize: 15, color: C.text, lineHeight: 22 },
   gpsRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  place: { fontFamily: F.semi, fontSize: 15, color: C.text, flexShrink: 1 },
 });

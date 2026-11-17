@@ -2,10 +2,8 @@ import { router } from "expo-router";
 import { File, UploadType } from "expo-file-system";
 import { session } from "./session";
 
-// 👉 CHANGE THIS to the IPv4 address of the laptop running Kai's backend.
-//    On that laptop: open a terminal, run `ipconfig`, copy "IPv4 Address".
-//    Keep ":5000" at the end. "localhost" does NOT work on a phone.
-export const API_URL = "http://192.168.1.15:5000";
+
+export const API_URL = "http://192.168.1.11:5000";
 
 export class ApiError extends Error {
   status: number;
@@ -104,6 +102,37 @@ export type PlantRequest = {
   review_comment?: string | null;
   reviewed_by_name?: string | null;
   requested_at: string;
+};
+
+// One saved copy of a plant record (GET /api/plants/:id/versions).
+export type PlantVersion = {
+  version_id: number;
+  version_no: number;
+  qr_code: string;
+  source: "REGISTER" | "EDIT" | "REQUEST" | "BACKFILL";
+  request_id: number | null;
+  note: string | null;
+  created_at: string;
+  changed_by_name: string | null;
+  changed_by_role: string | null;
+  changed_by_botanist_type: "Internal" | "External" | null;
+  approved_by_name: string | null;
+  [field: string]: unknown;
+};
+
+export type PlantVersions = {
+  versions: PlantVersion[];
+  rejected_requests: {
+    request_id: number;
+    request_type: "EDIT" | "DELETE";
+    proposed_changes: Record<string, unknown> | null;
+    reviewed_at: string | null;
+    review_comment: string | null;
+    requested_by_name: string | null;
+    requested_by_role: string | null;
+    requested_by_botanist_type: "Internal" | "External" | null;
+    reviewed_by_name: string | null;
+  }[];
 };
 
 // What a visitor sees (GET /api/public/plants, /api/public/plants/qr/:qr).
