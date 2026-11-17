@@ -63,24 +63,28 @@ export default function Explore() {
       ) : (
         <FlatList
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 16, gap: 10 }}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 16, gap: 16 }}
           data={plants}
           keyExtractor={(p) => p.qr_code}
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={<Text style={s.empty}>{error || "No published species yet."}</Text>}
           renderItem={({ item }) => (
             <Pressable style={s.card} onPress={() => router.push({ pathname: "/species", params: { qr: item.qr_code } })}>
-              {item.cover_photo_url ? (
-                <Image source={{ uri: item.cover_photo_url }} style={s.thumb} />
-              ) : (
-                <View style={[s.thumb, s.thumbEmpty]}><Ionicons name="leaf-outline" size={20} color={C.green} /></View>
-              )}
-              <View style={{ flex: 1, minWidth: 0 }}>
+              <View>
+                {item.cover_photo_url ? (
+                  <Image source={{ uri: item.cover_photo_url }} style={s.cover} />
+                ) : (
+                  <View style={[s.cover, s.coverEmpty]}><Ionicons name="leaf-outline" size={32} color={C.green} /></View>
+                )}
+                <Text style={s.qr}>{item.qr_code}</Text>
+              </View>
+              <View style={s.cardBody}>
                 <Text style={s.cardTitle} numberOfLines={1}>{item.common_name || item.scientific_name}</Text>
                 {!!item.common_name && <Text style={s.cardSci} numberOfLines={1}>{item.scientific_name}</Text>}
-                {!!item.family && <Text style={s.cardSub} numberOfLines={1}>{item.family}</Text>}
+                {!!(item.family || item.general_location) && (
+                  <Text style={s.cardSub} numberOfLines={1}>{[item.family, item.general_location].filter(Boolean).join(" · ")}</Text>
+                )}
               </View>
-              <Ionicons name="chevron-forward" size={18} color={C.faint} />
             </Pressable>
           )}
         />
@@ -102,11 +106,13 @@ const s = StyleSheet.create({
   scanText: { fontFamily: F.semi, fontSize: 16, color: C.bg },
   searchBox: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 24, marginBottom: 12, height: 46, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.white, paddingHorizontal: 12 },
   searchInput: { flex: 1, fontFamily: F.body, fontSize: 14, color: C.text },
-  card: { backgroundColor: C.white, borderRadius: 14, padding: 14, flexDirection: "row", gap: 12, alignItems: "center", borderWidth: 1, borderColor: C.line },
-  thumb: { width: 52, height: 52, borderRadius: 10, backgroundColor: C.greenSoft },
-  thumbEmpty: { alignItems: "center", justifyContent: "center" },
-  cardTitle: { fontFamily: F.semi, fontSize: 15, color: C.text },
-  cardSci: { fontFamily: F.body, fontSize: 13, color: C.muted, fontStyle: "italic", marginTop: 1 },
-  cardSub: { fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 2 },
   empty: { fontFamily: F.body, color: C.muted, textAlign: "center", marginTop: 40 },
+  card: { backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.line, overflow: "hidden" },
+  cover: { width: "100%", height: 190, backgroundColor: C.greenSoft },
+  coverEmpty: { alignItems: "center", justifyContent: "center" },
+  qr: { position: "absolute", top: 10, right: 10, fontFamily: "monospace", fontSize: 12, color: C.green, backgroundColor: "rgba(255,255,255,0.9)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, overflow: "hidden" },
+  cardBody: { padding: 16, gap: 3 },
+  cardTitle: { fontFamily: F.title, fontSize: 20, color: C.text },
+  cardSci: { fontFamily: F.body, fontSize: 14, color: C.muted, fontStyle: "italic" },
+  cardSub: { fontFamily: F.body, fontSize: 13, color: C.muted, marginTop: 4 },
 });

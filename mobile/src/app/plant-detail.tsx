@@ -8,7 +8,7 @@ import { useLocalSearchParams, router } from "expo-router";
 import QRCode from "react-native-qrcode-svg";
 import { api, PlantDetail as Plant, uploadPlantPhoto } from "../api";
 import * as ImagePicker from "expo-image-picker";
-import { C, F, friendlyDate } from "../theme";
+import { C, F } from "../theme";
 import { StatusBadge } from "../components";
 import { session, isExternal } from "../session";
 
@@ -124,8 +124,13 @@ export default function PlantDetail() {
     ["Width", width != null ? `${width} cm` : "—"],
     ["Conservation status", plant.conservation_status || "—"],
     ["Registered by", plant.registered_by_name || "—"],
-    ["Recorded", plant.created_at ? friendlyDate(plant.created_at) : "—"],
   ];
+
+  const extra = plant as Plant & {
+    ecological_role?: string | null;
+    medicinal_use?: string | null;
+    cultural_significance?: string | null;
+  };
 
   const photos = plant.photos || [];
 
@@ -152,7 +157,7 @@ export default function PlantDetail() {
             <Text style={s.name}>{plant.scientific_name}</Text>
             <Text style={s.id}>{plant.qr_code}</Text>
           </View>
-          <StatusBadge status={plant.publication_status} />
+          <StatusBadge status={plant.publication_status || (plant.full_detail === false ? "Published" : undefined)} />
         </View>
 
         {plant.full_detail === false && (
@@ -174,6 +179,19 @@ export default function PlantDetail() {
             <Text style={s.body}>{plant.morphological_notes}</Text>
           </View>
         )}
+
+        {([
+          ["Ecological role", extra.ecological_role],
+          ["Medicinal use", extra.medicinal_use],
+          ["Cultural significance", extra.cultural_significance],
+        ] as [string, string | null | undefined][])
+          .filter(([, value]) => !!value)
+          .map(([title, value]) => (
+            <View key={title} style={s.card}>
+              <Text style={s.cardTitle}>{title}</Text>
+              <Text style={s.body}>{value}</Text>
+            </View>
+          ))}
 
         {(lat != null || plant.general_location) && (
           <View style={s.card}>
@@ -202,6 +220,13 @@ export default function PlantDetail() {
             <Pressable style={s.outline} onPress={() => router.push({ pathname: "/edit-plant", params: { id: String(id) } })}>
               <Ionicons name="create-outline" size={18} color={C.green} />
               <Text style={s.outlineText}>{external ? "Request an edit" : "Edit record"}</Text>
+            </Pressable>
+            <Pressable
+              style={s.outline}
+              onPress={() => router.push({ pathname: "/versions", params: { id: String(id), name: plant.scientific_name } })}
+            >
+              <Ionicons name="time-outline" size={18} color={C.green} />
+              <Text style={s.outlineText}>View versions</Text>
             </Pressable>
             <Pressable style={s.danger} onPress={requestDelete}>
               <Ionicons name="trash-outline" size={18} color="#B3261E" />
