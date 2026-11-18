@@ -21,8 +21,10 @@ const MIN_STRONG = 12;
 const MIN_DEFAULT = 8;
 const MAX_BYTES = 72;
 
+// Split on \r\n as well: Git on Windows (core.autocrlf) checks the file out with CRLF line
+// endings, and a "password\r" entry would never match.
 const COMMON = new Set(
-  fs.readFileSync(path.join(__dirname, '..', 'data', 'common-passwords.txt'), 'utf8').split('\n').filter(Boolean)
+  fs.readFileSync(path.join(__dirname, '..', 'data', 'common-passwords.txt'), 'utf8').split(/\r?\n/).filter(Boolean)
 );
 
 function minimumLength(role_name) {

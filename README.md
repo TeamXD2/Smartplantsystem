@@ -128,7 +128,7 @@ npm run test:api
 
 It never touches the shared database. Every run starts a private Postgres in `backend/.test-db` (downloaded through npm the first time, nothing to install), wipes it, applies `schema.sql`, creates a test Admin, starts the backend on port 5055 against it and runs `backend/postman/Biodiversity-Sprint1.postman_collection.json` with newman. Afterwards it deletes the photos the run uploaded to Supabase Storage (there is no local Storage, so `backend/.env` is still needed for that) and stops everything. To use another Postgres instead, set `TEST_DATABASE_URL`; its database name must contain `test`, because the script drops and recreates it.
 
-The collection has 135 checks in 10 folders:
+The collection has 169 checks in 11 folders and calls all 38 API endpoints:
 
 | Folder | Covers |
 |---|---|
@@ -136,7 +136,8 @@ The collection has 135 checks in 10 folders:
 | 6. Plant versions | Registration, direct edits and approved requests saved as versions; rejected requests listed; who may see them |
 | 7. Botanist assignments | Officers assign and remove External Botanists, which gives and takes away full access; the change is in the plant's history |
 | 8. Account security | Password rules, old tokens ended by a password change or "sign out everywhere", cookie login with CSRF check, login throttling, private original photos, what the audit log records and who may read it |
-| 9. IoT plant protection | Device key, reading validation, alerts and acknowledging them |
+| 9. IoT plant protection | Device key, reading validation, temperature and movement alerts, acknowledging them, the monitoring dashboard, placing a sensor next to a plant, reading history |
+| 10. Deleting records and account recovery | An Officer deleting a plant, a Botanist's delete request and its approval, the deleted record kept in the audit log, an Admin resetting a password, web sign-out, the first-run setup staying closed |
 
 You can also import the collection into Postman and run it there, against a backend connected to a test database. Set `adminEmail`, `adminPassword` and `deviceKey` (the backend's `IOT_DEVICE_KEY`) in the Variables tab. Restart the backend before running it again within 15 minutes: the throttling checks use up most of the 10 failed logins the backend allows per IP address. Do not run it against the shared database, because its versions and audit log entries can never be removed.
 
