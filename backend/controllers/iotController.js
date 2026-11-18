@@ -109,11 +109,8 @@ async function postReading(req, res) {
         `Low humidity at ${label}: ${humidity}% (limit ${HUMIDITY_MIN}%)`, humidity));
     }
     if (soil !== null && soil < SOIL_MIN) {
-      // Real soil is never completely dry: 0% means the probe is out of the ground,
-      // usually because the plant was dug up.
-      const message = `Low soil moisture at ${label}: ${soil}% (limit ${SOIL_MIN}%)` +
-        (soil === 0 ? ' - possible plant being removed' : '');
-      alerts.push(await createAlertIfNew(client, sensor.sensor_id, 'SOIL', message, soil));
+      alerts.push(await createAlertIfNew(client, sensor.sensor_id, 'SOIL',
+        `Low soil moisture at ${label}: ${soil}% (limit ${SOIL_MIN}%)`, soil));
     }
     await client.query('COMMIT');
 
