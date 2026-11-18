@@ -118,9 +118,27 @@ All other accounts are created by an administrator in the web app, under Users. 
 
 ### Testing with Postman
 
-Import `backend/postman/Biodiversity-Sprint1.postman_collection.json`. In the collection's Variables tab, set `adminEmail` and `adminPassword`. In the Upload plant photo request, open Body and pick `backend/postman/sample-leaf.png`. Then run the whole collection. All 67 checks should pass. Each run adds test users (`...@test.com`) and plants to the shared database, so run it only when needed.
+Run the whole collection with one command:
 
-The collection covers the Sprint 1 flows: login and accounts, plants, editing and approval, publishing, the visitor view and account deactivation. It has no checks for the audit log, password changes or the IoT endpoints.
+```bash
+cd backend
+npm install
+npm run test:api
+```
+
+It never touches the shared database. Every run starts a private Postgres in `backend/.test-db` (downloaded through npm the first time, nothing to install), wipes it, applies `schema.sql`, creates a test Admin, starts the backend on port 5055 against it and runs `backend/postman/Biodiversity-Sprint1.postman_collection.json` with newman. Afterwards it deletes the photos the run uploaded to Supabase Storage (there is no local Storage, so `backend/.env` is still needed for that) and stops everything. To use another Postgres instead, set `TEST_DATABASE_URL`; its database name must contain `test`, because the script drops and recreates it.
+
+The collection has 135 checks in 10 folders:
+
+| Folder | Covers |
+|---|---|
+| 0-5 | Sprint 1: login and accounts, plants, QR codes and photos, editing and approval, publishing and the visitor view, account deactivation |
+| 6. Plant versions | Registration, direct edits and approved requests saved as versions; rejected requests listed; who may see them |
+| 7. Botanist assignments | Officers assign and remove External Botanists, which gives and takes away full access; the change is in the plant's history |
+| 8. Account security | Password rules, old tokens ended by a password change or "sign out everywhere", cookie login with CSRF check, login throttling, private original photos, what the audit log records and who may read it |
+| 9. IoT plant protection | Device key, reading validation, alerts and acknowledging them |
+
+You can also import the collection into Postman and run it there, against a backend connected to a test database. Set `adminEmail`, `adminPassword` and `deviceKey` (the backend's `IOT_DEVICE_KEY`) in the Variables tab. Restart the backend before running it again within 15 minutes: the throttling checks use up most of the 10 failed logins the backend allows per IP address. Do not run it against the shared database, because its versions and audit log entries can never be removed.
 
 ## Configuration
 
@@ -773,6 +791,7 @@ Existing passwords keep working. The new password rules apply the next time a pa
 | `scripts/checkSupabase.js` | `npm run check-supabase` |
 | `scripts/createAdmin.js` | `npm run create-admin`, the recovery tool for a lost administrator |
 | `scripts/sanitizeExistingPhotos.js` | `npm run sanitize-photos`, cleans photos uploaded before the public copies were stripped of GPS |
+| `scripts/apiTest.js` | `npm run test:api`, runs the Postman collection against a fresh test database |
 | `postman/` | The Postman test collection and a sample image |
 
 ## Troubleshooting
@@ -892,6 +911,5 @@ The first version was an offline app with a local SQLite database, a placeholder
 - Upgrading the mobile app to Expo SDK 58, which clears most of its remaining npm advisories. It needs testing on a phone.
 - Writing the remaining audit entries (logins, failed logins, first-administrator setup and sensor alert acknowledgements) in the same transaction as the action. They stay best-effort on purpose for now.
 - A database user that can only read and write data, instead of the owner account the backend uses now.
-- Postman checks for the audit log, password changes and the IoT endpoints.
 - An OpenAPI description of the API.
 - Researcher access requests (planned for a later sprint).
