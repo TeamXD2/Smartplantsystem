@@ -5,8 +5,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { api, PlantList, PlantSummary, PlantRequest } from "../api";
 import { session, roleLabel } from "../session";
-import { C, F, friendlyDate } from "../theme";
-import { StatusBadge, BottomNav } from "../components";
+import { C, F } from "../theme";
+import { BottomNav, PlantCard } from "../components";
 
 function greeting() {
   const h = new Date().getHours();
@@ -19,6 +19,8 @@ export default function Home() {
   const [error, setError] = useState("");
   const [total, setTotal] = useState(0);
   const [pending, setPending] = useState(0);
+  const [tab, setTab] = useState<"mine" | "park">("mine");
+  const [parkPlants, setParkPlants] = useState<PlantSummary[]>([]);
 
   // Reload my plants every time Home opens
   useFocusEffect(useCallback(() => {
@@ -28,6 +30,9 @@ export default function Home() {
       .then((d) => { if (active) { setPlants(d.plants); setTotal(d.total); setError(""); } })
       .catch((e) => { if (active) setError(e.message); })
       .finally(() => { if (active) setLoading(false); });
+    api<PlantList>("/api/plants?publication_status=Published&limit=100")
+      .then((d) => { if (active) setParkPlants(d.plants); })
+      .catch(() => {});
     api<PlantRequest[]>("/api/requests/mine?status=Pending")
       .then((r) => { if (active) setPending(r.length); })
       .catch(() => {});
@@ -60,7 +65,7 @@ export default function Home() {
       <View style={s.section}>
         <Pressable style={s.scanBtn} onPress={() => router.push("/scan")}>
           <Ionicons name="qr-code-outline" size={34} color={C.bg} />
-          <Text style={s.scanText}>Scan QR Code</Text>
+          <Text style={s.scanText}>Scan a Plant Tag</Text>
         </Pressable>
       </View>
 
@@ -81,30 +86,33 @@ export default function Home() {
         ))}
       </View>
 
-      <Text style={s.sectionTitle}>Recent Records</Text>
+      <View style={s.tabs}>
+        {([["mine", "My recent records"], ["park", `Published Plants (${parkPlants.length})`]] as const).map(([key, label]) => (
+          <Pressable key={key} style={[s.tab, tab === key && s.tabActive]} onPress={() => setTab(key)}>
+            <Text style={[s.tabText, tab === key && s.tabTextActive]} numberOfLines={1}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
 
       {loading ? (
         <ActivityIndicator color={C.green} style={{ marginTop: 20 }} />
       ) : (
         <FlatList
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 24, gap: 10 }}
-          data={plants.slice(0, 3)}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 16, gap: 10 }}
+          data={tab === "mine" ? plants.slice(0, 3) : parkPlants}
           keyExtractor={(item) => String(item.plant_id)}
           ListEmptyComponent={
-            <Text style={s.empty}>{error || "No records yet. Register your first plant!"}</Text>
+            <Text style={s.empty}>
+              {tab === "park" ? "No published plants yet." : error || "No records yet. Register your first plant!"}
+            </Text>
           }
           renderItem={({ item }) => (
-            <Pressable
-              style={s.card}
+            <PlantCard
+              plant={item}
+              status={tab === "park" ? undefined : item.publication_status}
               onPress={() => router.push({ pathname: "/plant-detail", params: { id: String(item.plant_id) } })}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={s.cardTitle} numberOfLines={1}>{item.scientific_name}</Text>
-                <Text style={s.cardSub}>{item.created_at ? friendlyDate(item.created_at) : item.qr_code}</Text>
-              </View>
-              <StatusBadge status={item.publication_status} />
-            </Pressable>
+            />
           )}
         />
       )}
@@ -130,9 +138,10 @@ const s = StyleSheet.create({
   stat: { flex: 1, backgroundColor: C.white, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 4, alignItems: "center", borderWidth: 1, borderColor: C.line },
   statNum: { fontFamily: F.title, fontSize: 20 },
   statLabel: { fontFamily: F.body, fontSize: 11, color: C.muted, marginTop: 2, textAlign: "center" },
-  sectionTitle: { fontFamily: F.semi, fontSize: 14, color: C.text, paddingHorizontal: 24, paddingTop: 18, paddingBottom: 10 },
-  card: { backgroundColor: C.white, borderRadius: 14, padding: 14, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: C.line },
-  cardTitle: { fontFamily: F.semi, fontSize: 14, color: C.text, fontStyle: "italic" },
-  cardSub: { fontFamily: F.body, fontSize: 12, color: C.muted, marginTop: 2 },
+  tabs: { flexDirection: "row", gap: 8, paddingHorizontal: 24, paddingTop: 18, paddingBottom: 10 },
+  tab: { flexShrink: 1, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: C.line, backgroundColor: C.white },
+  tabActive: { backgroundColor: C.green, borderColor: C.green },
+  tabText: { fontFamily: F.semi, fontSize: 12, color: C.text },
+  tabTextActive: { color: C.white },
   empty: { fontFamily: F.body, color: C.muted, textAlign: "center", marginTop: 20 },
 });

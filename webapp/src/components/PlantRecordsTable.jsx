@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Plus, X, Eye, History, Layers, Trash2, Download, Globe2, EyeOff, Database, SearchX, Pencil, Leaf, RefreshCw } from 'lucide-react';
+import { Plus, X, Eye, History, Layers, Trash2, Download, Globe2, EyeOff, Database, SearchX, Pencil, Leaf, RefreshCw, UserPlus } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmContext';
@@ -20,6 +20,7 @@ import EditPanel from './EditPanel';
 import PublishPanel from './PublishPanel';
 import HistoryPanel from './HistoryPanel';
 import VersionsPanel from './VersionsPanel';
+import AssignPanel from './AssignPanel';
 import BulkPublishDialog from './BulkPublishDialog';
 import StatusTag from './StatusTag';
 import SpecimenName from './ui/SpecimenName';
@@ -52,7 +53,7 @@ export default function PlantRecordsTable({ variant = 'staff', mine = variant !=
   const [params, setParams] = useSearchParams();
   const { rows, loading, error, capped, reload } = useAllPlants({ mine });
 
-  const [open, setOpen] = useState(null); // { id, kind: 'edit' | 'publish' | 'versions' | 'history' }
+  const [open, setOpen] = useState(null); // { id, kind: 'edit' | 'publish' | 'assign' | 'versions' | 'history' }
   const [adding, setAdding] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [progress, setProgress] = useState(null); // { done, total } while a bulk action runs
@@ -342,6 +343,7 @@ export default function PlantRecordsTable({ variant = 'staff', mine = variant !=
                             label={`More actions for ${name}`}
                             items={[
                               staff && { label: p.publication_status === 'Published' ? 'Visibility' : 'Publish', icon: p.publication_status === 'Published' ? Eye : Globe2, onClick: () => toggle(p.plant_id, 'publish') },
+                              staff && { label: 'Assign botanist', icon: UserPlus, onClick: () => toggle(p.plant_id, 'assign') },
                               { label: 'Versions', icon: Layers, onClick: () => toggle(p.plant_id, 'versions') },
                               { label: 'History', icon: History, onClick: () => toggle(p.plant_id, 'history') },
                               { label: staff ? 'Delete' : 'Request deletion', icon: Trash2, danger: true, onClick: () => remove(p) },
@@ -355,6 +357,7 @@ export default function PlantRecordsTable({ variant = 'staff', mine = variant !=
                         <td colSpan={columns}>
                           {open.kind === 'edit' && <EditPanel plantId={p.plant_id} onDone={finished} onDirtyChange={(d) => { panelDirty.current = d; }} />}
                           {open.kind === 'publish' && <PublishPanel plant={p} onDone={finished} />}
+                          {open.kind === 'assign' && <AssignPanel plantId={p.plant_id} />}
                           {open.kind === 'versions' && <VersionsPanel plantId={p.plant_id} />}
                           {open.kind === 'history' && <HistoryPanel plantId={p.plant_id} />}
                         </td>

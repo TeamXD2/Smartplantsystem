@@ -1,11 +1,11 @@
 import { useCallback, useState } from "react";
-import { View, Text, Pressable, FlatList, Image, StyleSheet, TextInput, ActivityIndicator } from "react-native";
+import { View, Text, Pressable, FlatList, StyleSheet, TextInput, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { api, PlantList, PlantSummary } from "../api";
-import { C, F, friendlyDate } from "../theme";
-import { StatusBadge, BottomNav } from "../components";
+import { C, F } from "../theme";
+import { BottomNav, PlantCard } from "../components";
 
 const FILTERS = ["All", "Under Research", "Published"] as const;
 type Filter = (typeof FILTERS)[number];
@@ -87,25 +87,11 @@ export default function Records() {
             <Text style={s.empty}>{error || (q ? `No plants match "${query}".` : "No records here.")}</Text>
           }
           renderItem={({ item }) => (
-            <Pressable
-              style={s.card}
+            <PlantCard
+              plant={item}
+              status={item.publication_status}
               onPress={() => router.push({ pathname: "/plant-detail", params: { id: String(item.plant_id) } })}
-            >
-              {item.cover_photo_url ? (
-                <Image source={{ uri: item.cover_photo_url }} style={s.thumb} />
-              ) : (
-                <View style={[s.thumb, s.thumbEmpty]}>
-                  <Ionicons name="leaf-outline" size={20} color={C.green} />
-                </View>
-              )}
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={s.cardTitle} numberOfLines={1}>{item.scientific_name}</Text>
-                <Text style={s.cardSub} numberOfLines={1}>
-                  {item.created_at ? friendlyDate(item.created_at) : ""}{item.common_name ? ` · ${item.common_name}` : ""}
-                </Text>
-              </View>
-              <StatusBadge status={item.publication_status} />
-            </Pressable>
+            />
           )}
         />
       )}
@@ -127,10 +113,5 @@ const s = StyleSheet.create({
   chipOn: { backgroundColor: C.green },
   chipOff: { backgroundColor: C.white, borderWidth: 1, borderColor: C.border },
   chipText: { fontFamily: F.semi, fontSize: 13 },
-  card: { backgroundColor: C.white, borderRadius: 14, padding: 14, flexDirection: "row", gap: 12, alignItems: "center", borderWidth: 1, borderColor: C.line },
-  thumb: { width: 48, height: 48, borderRadius: 10, backgroundColor: C.greenSoft },
-  thumbEmpty: { alignItems: "center", justifyContent: "center" },
-  cardTitle: { fontFamily: F.semi, fontSize: 14, color: C.text, fontStyle: "italic" },
-  cardSub: { fontFamily: F.body, fontSize: 12, color: C.muted, marginTop: 2 },
   empty: { fontFamily: F.body, color: C.muted, textAlign: "center", marginTop: 40 },
 });

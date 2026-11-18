@@ -18,11 +18,13 @@ const {
   updateVisibility,
   deletePlant
 } = require('../controllers/plantController');
+const { listAssignments, assignBotanist, unassignBotanist } = require('../controllers/assignmentController');
 
 // All routes here require login (Botanist/Officer/Admin)
 // Reject non-numeric ids before they reach Postgres
 router.param('id', validateId);
 router.param('photoId', validateId);
+router.param('botanistId', validateId);
 
 router.use(authenticate);
 
@@ -36,6 +38,9 @@ router.get('/:id/versions', getPlantVersions);            // Every saved version
 router.post('/:id/photos', upload.single('photo'), uploadPlantPhoto); // Attach photo (public copy has no GPS; original kept private)
 router.get('/:id/photos/:photoId/original', getOriginalPhoto);         // Short-lived link to the private original (Officer/Admin, or the uploader)
 router.patch('/:id/visibility', requireRole('Conservation Officer', 'Admin'), updateVisibility); // Publish / location visibility
+router.get('/:id/assignments', requireRole('Conservation Officer', 'Admin'), listAssignments);                  // External Botanists assigned to this plant
+router.post('/:id/assignments', requireRole('Conservation Officer', 'Admin'), assignBotanist);                  // Give an External Botanist full access
+router.delete('/:id/assignments/:botanistId', requireRole('Conservation Officer', 'Admin'), unassignBotanist); // Take that access away
 router.delete('/:id', requireRole('Conservation Officer', 'Admin'), deletePlant);                 // Direct delete (Botanists use POST /api/requests)
 
 module.exports = router;

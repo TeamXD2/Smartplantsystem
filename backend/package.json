@@ -11,7 +11,8 @@
     "dev": "nodemon server.js",
     "check-supabase": "node scripts/checkSupabase.js",
     "create-admin": "node scripts/createAdmin.js",
-    "sanitize-photos": "node scripts/sanitizeExistingPhotos.js"
+    "sanitize-photos": "node scripts/sanitizeExistingPhotos.js",
+    "test:api": "node scripts/apiTest.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
@@ -28,6 +29,8 @@
     "sharp": "^0.35.5"
   },
   "devDependencies": {
+    "embedded-postgres": "17.11.0-beta.19",
+    "newman": "6.2.3",
     "nodemon": "^3.1.0"
   },
   "allowScripts": {

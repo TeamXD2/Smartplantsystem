@@ -41,7 +41,12 @@ function restrictedView(plant, photos) {
   if (!isPublished(plant)) {
     return null;
   }
-  return { plant_id: plant.plant_id, ...buildPublicView(plant, photos), full_detail: false };
+  return {
+    plant_id: plant.plant_id,
+    ...buildPublicView(plant, photos),
+    registered_by_name: plant.registered_by_name || null,
+    full_detail: false,
+  };
 }
 
 // A plant's photos, oldest first.
@@ -230,7 +235,12 @@ async function getPlantById(req, res) {
   try {
     const { id } = req.params;
 
-    const { rows } = await pool.query('SELECT * FROM plants WHERE plant_id = $1', [id]);
+    const { rows } = await pool.query(
+      `SELECT p.*, u.full_name AS registered_by_name
+       FROM plants p LEFT JOIN users u ON u.user_id = p.registered_by
+       WHERE p.plant_id = $1`,
+      [id]
+    );
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Plant not found' });
     }
@@ -240,7 +250,9 @@ async function getPlantById(req, res) {
 
     if (!(await canSeeFullDetail(req.user, id))) {
       const view = restrictedView(plant, photos);
-      return view ? res.json(view) : res.status(404).json({ error: 'Plant not found' });
+      return view
+        ? res.json({ ...view, registered_by_name: plant.registered_by_name })
+        : res.status(404).json({ error: 'Plant not found' });
     }
 
     res.json({ ...plant, photos, full_detail: true });
@@ -255,7 +267,12 @@ async function getPlantByQrCode(req, res) {
   try {
     const { qr_code } = req.params;
 
-    const { rows } = await pool.query('SELECT * FROM plants WHERE qr_code = $1', [qr_code]);
+    const { rows } = await pool.query(
+      `SELECT p.*, u.full_name AS registered_by_name
+       FROM plants p LEFT JOIN users u ON u.user_id = p.registered_by
+       WHERE p.qr_code = $1`,
+      [qr_code]
+    );
     if (rows.length === 0) {
       return res.status(404).json({ error: 'No plant found for this QR code' });
     }
@@ -264,7 +281,9 @@ async function getPlantByQrCode(req, res) {
     const photos = await getPhotos(plant.plant_id);
     if (!(await canSeeFullDetail(req.user, plant.plant_id))) {
       const view = restrictedView(plant, photos);
-      return view ? res.json(view) : res.status(404).json({ error: 'No plant found for this QR code' });
+      return view
+        ? res.json({ ...view, registered_by_name: plant.registered_by_name })
+        : res.status(404).json({ error: 'No plant found for this QR code' });
     }
 
     res.json({ ...plant, photos, full_detail: true });
@@ -541,6 +560,12 @@ function buildHistorySummary(log) {
 
     case 'UPDATE_VISIBILITY':
       return `${who} changed public visibility settings`;
+
+    case 'ASSIGN_BOTANIST':
+      return `${who} assigned ${(log.details && log.details.botanist_name) || 'an External Botanist'} to this plant`;
+
+    case 'UNASSIGN_BOTANIST':
+      return `${who} removed ${(log.details && log.details.botanist_name) || 'an External Botanist'} from this plant`;
 
     default:
       return `${who} performed an action (${log.action})`;

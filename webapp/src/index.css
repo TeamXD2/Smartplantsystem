@@ -263,6 +263,17 @@ textarea.input { padding: 11px 14px; min-height: 88px; line-height: 1.45; resize
 .history-list li { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .history-list li:last-child { border-bottom: 0; }
 
+/* Assign panel (AssignPanel.jsx): assigned botanists left, filter + candidates right. */
+.assign { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+.assign-title { font-size: 0.95rem; margin: 0 0 8px; }
+.assign-small { font-size: 0.8rem; }
+.assign-search { position: relative; display: block; margin-bottom: 8px; }
+.assign-search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-600); pointer-events: none; }
+.assign-search .input { padding-left: 34px; }
+.assign-options { max-height: 260px; overflow-y: auto; }
+.assign .history-list li { align-items: center; }
+@media (max-width: 720px) { .assign { grid-template-columns: 1fr; } }
+
 /* Versions panel (VersionsPanel.jsx): timeline left, chosen version right. */
 .versions { display: grid; grid-template-columns: minmax(220px, 280px) 1fr; gap: 20px; align-items: start; }
 .versions-small { font-size: 0.8rem; }
@@ -458,7 +469,8 @@ textarea.input { padding: 11px 14px; min-height: 88px; line-height: 1.45; resize
 .detail-section { margin-bottom: 20px; max-width: 68ch; }
 .detail-section h2 { font-family: var(--font); font-size: 1rem; margin-bottom: 4px; }
 .detail-section p { margin: 0; color: var(--ink-700); }
-.detail-location { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.detail-location { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 600; }
+.detail-location .map-link { font-weight: 500; font-size: 0.9rem; }
 @media (max-width: 860px) { .detail-grid { grid-template-columns: 1fr; gap: 24px; } }
 
 /* ---------- Auth ---------- */

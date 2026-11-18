@@ -131,14 +131,19 @@ export default function SpeciesDetail() {
             </section>
           ))}
 
-          {hasPoint ? (
-            <a className="btn btn-outline" target="_blank" rel="noreferrer" href={`https://www.google.com/maps?q=${plant.latitude},${plant.longitude}`}>
-              <MapPin size={16} aria-hidden="true" /> <span className="coord">{Number(plant.latitude)}, {Number(plant.longitude)}</span>
-              <span className="sr-only"> (opens Google Maps in a new tab)</span>
-            </a>
-          ) : (
-            plant.general_location && <p className="detail-location"><MapPin size={16} aria-hidden="true" /> {plant.general_location}</p>
-          )}
+          <p className="detail-location">
+            <MapPin size={16} aria-hidden="true" />
+            {hasPoint ? (
+              <>
+                <span>Lat {Number(plant.latitude).toFixed(5)}, Lng {Number(plant.longitude).toFixed(5)}</span>
+                <a className="map-link" target="_blank" rel="noreferrer" href={`https://www.google.com/maps?q=${plant.latitude},${plant.longitude}`}>
+                  Open in Google Maps<span className="sr-only"> (opens in a new tab)</span>
+                </a>
+              </>
+            ) : (
+              <span>{plant.general_location || 'Location hidden to protect this species'}</span>
+            )}
+          </p>
         </div>
       </div>
     </div>

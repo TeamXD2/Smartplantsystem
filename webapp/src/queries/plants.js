@@ -85,3 +85,17 @@ export async function fetchAllPages(fetchPage, params = {}, maxPages = 20) {
   }
   return all;
 }
+
+// Officer / Admin: which External Botanists may see this plant's full record.
+// { assigned: [...], available: [active External Botanists not assigned yet] }
+export function fetchAssignments(plantId) {
+  return api(`/api/plants/${plantId}/assignments`);
+}
+
+export function assignBotanist(plantId, botanistId) {
+  return api(`/api/plants/${plantId}/assignments`, { method: 'POST', body: { botanist_id: botanistId } });
+}
+
+export function unassignBotanist(plantId, botanistId) {
+  return api(`/api/plants/${plantId}/assignments/${botanistId}`, { method: 'DELETE' });
+}
