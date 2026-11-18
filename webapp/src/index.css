@@ -263,6 +263,17 @@ textarea.input { padding: 11px 14px; min-height: 88px; line-height: 1.45; resize
 .history-list li { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .history-list li:last-child { border-bottom: 0; }
 
+/* Assign panel (AssignPanel.jsx): assigned botanists left, filter + candidates right. */
+.assign { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+.assign-title { font-size: 0.95rem; margin: 0 0 8px; }
+.assign-small { font-size: 0.8rem; }
+.assign-search { position: relative; display: block; margin-bottom: 8px; }
+.assign-search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-600); pointer-events: none; }
+.assign-search .input { padding-left: 34px; }
+.assign-options { max-height: 260px; overflow-y: auto; }
+.assign .history-list li { align-items: center; }
+@media (max-width: 720px) { .assign { grid-template-columns: 1fr; } }
+
 /* Versions panel (VersionsPanel.jsx): timeline left, chosen version right. */
 .versions { display: grid; grid-template-columns: minmax(220px, 280px) 1fr; gap: 20px; align-items: start; }
 .versions-small { font-size: 0.8rem; }

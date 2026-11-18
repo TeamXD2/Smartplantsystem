@@ -561,6 +561,12 @@ function buildHistorySummary(log) {
     case 'UPDATE_VISIBILITY':
       return `${who} changed public visibility settings`;
 
+    case 'ASSIGN_BOTANIST':
+      return `${who} assigned ${(log.details && log.details.botanist_name) || 'an External Botanist'} to this plant`;
+
+    case 'UNASSIGN_BOTANIST':
+      return `${who} removed ${(log.details && log.details.botanist_name) || 'an External Botanist'} from this plant`;
+
     default:
       return `${who} performed an action (${log.action})`;
   }
