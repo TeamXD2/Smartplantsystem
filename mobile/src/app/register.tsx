@@ -6,6 +6,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { router } from "expo-router";
 import { api, uploadPlantPhoto } from "../api";
+import { savePlantOffline, isOfflineError } from "../offline";
 import { C, F } from "../theme";
 
 export default function RegisterPlant() {
@@ -62,22 +63,24 @@ export default function RegisterPlant() {
       }
     }
 
+    const body = {
+      scientific_name: scientificName.trim(),
+      common_name: commonName.trim() || undefined,
+      family: family.trim() || undefined,
+      genus: genus.trim() || undefined,
+      species: species.trim() || undefined,
+      height_cm: h,
+      width_cm: w,
+      morphological_notes: notes.trim() || undefined,
+      latitude: coords.lat,
+      longitude: coords.lng,
+    };
+
     setSaving(true);
     try {
       const created = await api<{ plant_id: number; qr_code: string }>("/api/plants", {
         method: "POST",
-        body: {
-          scientific_name: scientificName.trim(),
-          common_name: commonName.trim() || undefined,
-          family: family.trim() || undefined,
-          genus: genus.trim() || undefined,
-          species: species.trim() || undefined,
-          height_cm: h,
-          width_cm: w,
-          morphological_notes: notes.trim() || undefined,
-          latitude: coords.lat,
-          longitude: coords.lng,
-        },
+        body,
       });
 
       // Upload the photo (field name must be "photo")
@@ -94,6 +97,20 @@ export default function RegisterPlant() {
         params: { qr: created.qr_code, id: String(created.plant_id), name: scientificName.trim(), photoFailed },
       });
     } catch (e: any) {
+      if (isOfflineError(e)) {
+        try {
+          savePlantOffline(body, photo);
+          Alert.alert(
+            "Saved on this phone",
+            "There's no connection right now. The plant is saved on your phone and will upload automatically when you're back online. Its QR code will be ready then."
+          );
+          router.replace("/home");
+        } catch (err: any) {
+          Alert.alert("Could not save", err.message);
+          setSaving(false);
+        }
+        return;
+      }
       Alert.alert("Could not save", e.message);
       setSaving(false);
     }

@@ -6,6 +6,7 @@ import { router, useFocusEffect } from "expo-router";
 import { api, PlantList, PlantSummary, PlantRequest } from "../api";
 import { session, roleLabel } from "../session";
 import { C, F } from "../theme";
+import { pendingPlants, syncPending } from "../offline";
 import { BottomNav, PlantCard } from "../components";
 
 function greeting() {
@@ -21,11 +22,40 @@ export default function Home() {
   const [pending, setPending] = useState(0);
   const [tab, setTab] = useState<"mine" | "park">("mine");
   const [parkPlants, setParkPlants] = useState<PlantSummary[]>([]);
+  const [offlineCount, setOfflineCount] = useState(0);
+  const [offlineNames, setOfflineNames] = useState<string[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [syncNote, setSyncNote] = useState("");
+  const [refresh, setRefresh] = useState(0);
+
+  const readOffline = () => {
+    const list = pendingPlants();
+    setOfflineCount(list.length);
+    setOfflineNames(list.map((p) => String(p.body.scientific_name || "Unnamed plant")));
+    return list.length;
+  };
+
+  const syncNow = async () => {
+    setSyncing(true);
+    setSyncNote("");
+    const r = await syncPending();
+    setSyncing(false);
+    readOffline();
+    if (r.synced > 0) {
+      setSyncNote(`${r.synced} plant${r.synced === 1 ? "" : "s"} uploaded. QR codes are ready in Records.`);
+      setRefresh((n) => n + 1);
+    } else if (r.offline) {
+      setSyncNote("Still no connection. It will try again when you open Home.");
+    } else if (r.failed > 0) {
+      setSyncNote("Some plants couldn't upload. Check them and try again.");
+    }
+  };
 
   // Reload my plants every time Home opens
   useFocusEffect(useCallback(() => {
     let active = true;
     setLoading(true);
+    if (readOffline() > 0) syncNow();
     api<PlantList>("/api/plants?mine=true&limit=100")
       .then((d) => { if (active) { setPlants(d.plants); setTotal(d.total); setError(""); } })
       .catch((e) => { if (active) setError(e.message); })
@@ -37,7 +67,7 @@ export default function Home() {
       .then((r) => { if (active) setPending(r.length); })
       .catch(() => {});
     return () => { active = false; };
-  }, []));
+  }, [refresh]));
 
   const published = plants.filter((p) => p.publication_status === "Published").length;
   const stats: [string, number, string][] = [
@@ -75,6 +105,28 @@ export default function Home() {
           <Text style={s.regText}>Register New Plant</Text>
         </Pressable>
       </View>
+
+      {(offlineCount > 0 || !!syncNote) && (
+        <View style={s.offline}>
+          <Ionicons name={offlineCount > 0 ? "cloud-offline-outline" : "cloud-done-outline"} size={22} color={offlineCount > 0 ? C.orange : C.green} />
+          <View style={{ flex: 1 }}>
+            {offlineCount > 0 && (
+              <>
+                <Text style={s.offlineTitle}>
+                  {offlineCount} plant{offlineCount === 1 ? "" : "s"} saved on this phone
+                </Text>
+                <Text style={s.offlineSub} numberOfLines={2}>{offlineNames.join(", ")}</Text>
+              </>
+            )}
+            {!!syncNote && <Text style={s.offlineSub}>{syncNote}</Text>}
+          </View>
+          {offlineCount > 0 && (
+            <Pressable style={s.syncBtn} onPress={syncNow} disabled={syncing} accessibilityRole="button">
+              {syncing ? <ActivityIndicator color={C.white} size="small" /> : <Text style={s.syncText}>Sync now</Text>}
+            </Pressable>
+          )}
+        </View>
+      )}
 
       {/* Same numbers as the website Dashboard */}
       <View style={s.stats}>
@@ -134,6 +186,11 @@ const s = StyleSheet.create({
   scanText: { fontFamily: F.semi, fontSize: 17, color: C.bg },
   regBtn: { height: 56, borderRadius: 14, borderWidth: 1.5, borderColor: C.orange, backgroundColor: C.white, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
   regText: { fontFamily: F.semi, fontSize: 15, color: C.orange },
+  offline: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 24, marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: C.white, borderWidth: 1, borderColor: C.line },
+  offlineTitle: { fontFamily: F.semi, fontSize: 14, color: C.text },
+  offlineSub: { fontFamily: F.body, fontSize: 12, color: C.muted, marginTop: 2 },
+  syncBtn: { backgroundColor: C.green, borderRadius: 10, paddingHorizontal: 12, height: 36, alignItems: "center", justifyContent: "center", minWidth: 84 },
+  syncText: { fontFamily: F.semi, fontSize: 13, color: C.white },
   stats: { flexDirection: "row", gap: 8, paddingHorizontal: 24, paddingTop: 14 },
   stat: { flex: 1, backgroundColor: C.white, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 4, alignItems: "center", borderWidth: 1, borderColor: C.line },
   statNum: { fontFamily: F.title, fontSize: 20 },
